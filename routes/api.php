@@ -1,9 +1,10 @@
 <?php
 
-use App\Http\Controllers\AdminUserController;
 use App\Http\Controllers\AdminAuthController;
+use App\Http\Controllers\AdminUserController;
 use App\Http\Controllers\BranchController;
 use App\Http\Controllers\JazeApiController;
+use App\Http\Controllers\RenewSuccessLogController;
 use Illuminate\Support\Facades\Route;
 
 Route::post('admin-login', [AdminAuthController::class, 'login']);
@@ -35,6 +36,9 @@ Route::middleware('admin.auth')->group(function (): void {
 
         Route::post('renew/default-settings', [JazeApiController::class, 'renewDefaultSettings']);
         Route::post('renew', [JazeApiController::class, 'renew']);
+        Route::get('renew-successes', [RenewSuccessLogController::class, 'index']);
+        Route::post('renew-successes', [RenewSuccessLogController::class, 'store']);
+        Route::get('renew-successes/{renewSuccessLog}', [RenewSuccessLogController::class, 'show']);
 
         Route::post('tickets', [JazeApiController::class, 'raiseTicket']);
         Route::post('tickets/search', [JazeApiController::class, 'tickets']);
