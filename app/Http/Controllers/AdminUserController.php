@@ -44,6 +44,8 @@ class AdminUserController extends Controller
             $data['branch_id'] = $authAdmin->branch_id;
         }
 
+        $this->clearBranchForSuperAdmin($data);
+
         $adminUser = AdminUser::create($data);
 
         return response()->json($adminUser->load('branch'), 201);
@@ -74,6 +76,8 @@ class AdminUserController extends Controller
         } elseif (! $this->isSuperAdmin($authAdmin)) {
             unset($data['role'], $data['branch_id'], $data['status']);
         }
+
+        $this->clearBranchForSuperAdmin($data, $adminUser);
 
         $adminUser->update($data);
 
@@ -146,6 +150,18 @@ class AdminUserController extends Controller
     private function isSuperAdmin(AdminUser $adminUser): bool
     {
         return $adminUser->role === 'super_admin';
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     */
+    private function clearBranchForSuperAdmin(array &$data, ?AdminUser $adminUser = null): void
+    {
+        $role = $data['role'] ?? $adminUser?->role;
+
+        if ($role === 'super_admin') {
+            $data['branch_id'] = null;
+        }
     }
 
     private function adminUser(Request $request): AdminUser
