@@ -3,6 +3,7 @@
 use App\Models\AdminUser;
 use App\Models\Branch;
 use App\Models\RenewSuccessLog;
+use App\Services\JazeApiClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 
@@ -130,4 +131,106 @@ test('branch admin cannot store renew success data for another branch', function
     ]);
 
     $response->assertForbidden();
+});
+
+test('successful jaze renew stores renew success log automatically', function () {
+    $branch = Branch::create([
+        'name' => 'Ngopa',
+        'code' => 'NGOPA',
+        'status' => 'active',
+    ]);
+
+    AdminUser::create([
+        'name' => 'Branch Admin',
+        'phone' => '9000000001',
+        'email' => 'branch@example.com',
+        'password' => Hash::make('password123'),
+        'role' => 'branch_admin',
+        'branch_id' => $branch->id,
+        'status' => 'active',
+    ]);
+
+    $jaze = Mockery::mock(JazeApiClient::class);
+    $jaze->shouldReceive('post')
+        ->once()
+        ->withArgs(fn (Branch $jazeBranch, string $path, array $payload): bool => $jazeBranch->is($branch)
+            && $path === 'api/v1/renew'
+            && $payload['userId'] === 'user-123')
+        ->andReturn([
+            'status' => 200,
+            'data' => ['message' => 'Renewed successfully', 'transactionId' => 'txn-1'],
+            'successful' => true,
+        ]);
+
+    $this->app->instance(JazeApiClient::class, $jaze);
+
+    $response = $this->postJson('/api/jaze/renew', [
+        'admin_login' => '9000000001',
+        'admin_password' => 'password123',
+        'userId' => 'user-123',
+        'userName' => 'customer001',
+        'accountId' => 'account-1',
+        'renewDefaultSettings' => 'true',
+        'isRenewPresentDate' => 'true',
+    ]);
+
+    $response
+        ->assertOk()
+        ->assertJsonPath('message', 'Renewed successfully');
+
+    $this->assertDatabaseHas('renew_success_logs', [
+        'branch_id' => $branch->id,
+        'jaze_user_id' => 'user-123',
+        'jaze_username' => 'customer001',
+        'account_id' => 'account-1',
+        'status' => 'success',
+    ]);
+
+    $renewSuccessLog = RenewSuccessLog::first();
+
+    expect($renewSuccessLog->payload)
+        ->toHaveKey('request.userId', 'user-123')
+        ->toHaveKey('response.message', 'Renewed successfully')
+        ->not->toHaveKey('request.admin_password');
+});
+
+test('failed jaze renew does not store renew success log', function () {
+    $branch = Branch::create([
+        'name' => 'Ngopa',
+        'code' => 'NGOPA',
+        'status' => 'active',
+    ]);
+
+    AdminUser::create([
+        'name' => 'Branch Admin',
+        'phone' => '9000000001',
+        'email' => 'branch@example.com',
+        'password' => Hash::make('password123'),
+        'role' => 'branch_admin',
+        'branch_id' => $branch->id,
+        'status' => 'active',
+    ]);
+
+    $jaze = Mockery::mock(JazeApiClient::class);
+    $jaze->shouldReceive('post')
+        ->once()
+        ->andReturn([
+            'status' => 422,
+            'data' => ['message' => 'Renew failed'],
+            'successful' => false,
+        ]);
+
+    $this->app->instance(JazeApiClient::class, $jaze);
+
+    $response = $this->postJson('/api/jaze/renew', [
+        'admin_login' => '9000000001',
+        'admin_password' => 'password123',
+        'userId' => 'user-123',
+        'renewDefaultSettings' => 'true',
+        'isRenewPresentDate' => 'true',
+    ]);
+
+    $response->assertStatus(422);
+
+    $this->assertDatabaseCount('renew_success_logs', 0);
 });

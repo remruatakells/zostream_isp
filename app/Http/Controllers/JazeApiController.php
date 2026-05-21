@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\AdminUser;
 use App\Models\Branch;
+use App\Models\RenewSuccessLog;
 use App\Services\JazeApiClient;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\JsonResponse;
@@ -130,7 +131,16 @@ class JazeApiController extends Controller
             'isRenewPresentDate' => ['required'],
         ]);
 
-        return $this->post($request, 'api/v1/renew');
+        return $this->post(
+            $request,
+            'api/v1/renew',
+            afterSuccessfulResponse: fn (Branch $branch, AdminUser $adminUser, array $response): RenewSuccessLog => $this->storeRenewSuccessLog(
+                $request,
+                $branch,
+                $adminUser,
+                $response
+            )
+        );
     }
 
     public function raiseTicket(Request $request): JsonResponse
@@ -198,17 +208,28 @@ class JazeApiController extends Controller
 
     /**
      * @param  array<string, mixed>  $parameters
+     * @param  (callable(Branch, AdminUser, array{status: int, data: mixed, successful: bool}): mixed)|null  $afterSuccessfulResponse
      */
-    private function post(Request $request, string $path, array $parameters = []): JsonResponse
-    {
-        return $this->send($request, 'post', $path, $parameters);
+    private function post(
+        Request $request,
+        string $path,
+        array $parameters = [],
+        ?callable $afterSuccessfulResponse = null
+    ): JsonResponse {
+        return $this->send($request, 'post', $path, $parameters, $afterSuccessfulResponse);
     }
 
     /**
      * @param  array<string, mixed>  $parameters
+     * @param  (callable(Branch, AdminUser, array{status: int, data: mixed, successful: bool}): mixed)|null  $afterSuccessfulResponse
      */
-    private function send(Request $request, string $method, string $path, array $parameters = []): JsonResponse
-    {
+    private function send(
+        Request $request,
+        string $method,
+        string $path,
+        array $parameters = [],
+        ?callable $afterSuccessfulResponse = null
+    ): JsonResponse {
         $adminUser = $this->adminUser($request);
         $branches = $this->branchesForAdmin($adminUser, $request, $method);
 
@@ -238,6 +259,10 @@ class JazeApiController extends Controller
                 : $this->jaze->post($branch, $path, $this->bodyPayload($request));
         } catch (Throwable $exception) {
             return response()->json(['message' => $exception->getMessage()], 503);
+        }
+
+        if ($response['successful'] && $afterSuccessfulResponse) {
+            $afterSuccessfulResponse($branch, $adminUser, $response);
         }
 
         return response()->json($response['data'], $response['status']);
@@ -376,6 +401,33 @@ class JazeApiController extends Controller
             ->except(['admin_login', 'admin_password', 'branch_id', 'branch_code'])
             ->filter(fn (mixed $value): bool => $value !== null && $value !== '')
             ->all();
+    }
+
+    /**
+     * @param  array{status: int, data: mixed, successful: bool}  $response
+     */
+    private function storeRenewSuccessLog(
+        Request $request,
+        Branch $branch,
+        AdminUser $adminUser,
+        array $response
+    ): RenewSuccessLog {
+        $payload = $this->bodyPayload($request);
+
+        return RenewSuccessLog::create([
+            'branch_id' => $branch->id,
+            'admin_user_id' => $adminUser->id,
+            'jaze_user_id' => $payload['userId'] ?? $payload['user_id'] ?? null,
+            'jaze_username' => $payload['userName'] ?? $payload['username'] ?? null,
+            'account_id' => $payload['accountId'] ?? $payload['account_id'] ?? null,
+            'status' => 'success',
+            'payload' => [
+                'request' => $payload,
+                'response' => $response['data'],
+                'response_status' => $response['status'],
+            ],
+            'renewed_at' => now(),
+        ]);
     }
 
     /**
