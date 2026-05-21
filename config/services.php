@@ -40,4 +40,9 @@ return [
         'timeout' => env('JAZE_TIMEOUT', 20),
     ],
 
+    'zostream_isp' => [
+        'subscribe_url' => env('ZOSTREAM_ISP_SUBSCRIBE_URL', 'https://apis.zostream.in/api/v3.0/zostream-isp/subscribe'),
+        'timeout' => env('ZOSTREAM_ISP_TIMEOUT', 20),
+    ],
+
 ];

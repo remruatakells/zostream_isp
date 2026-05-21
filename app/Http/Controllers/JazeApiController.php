@@ -9,6 +9,7 @@ use App\Services\JazeApiClient;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
 use Throwable;
 
 class JazeApiController extends Controller
@@ -129,12 +130,15 @@ class JazeApiController extends Controller
             'userId' => ['required'],
             'renewDefaultSettings' => ['required'],
             'isRenewPresentDate' => ['required'],
+            'phone_no' => ['required_without_all:phone,phoneNumber', 'nullable', 'string'],
+            'phone' => ['nullable', 'string'],
+            'phoneNumber' => ['nullable', 'string'],
         ]);
 
         return $this->post(
             $request,
             'api/v1/renew',
-            afterSuccessfulResponse: fn (Branch $branch, AdminUser $adminUser, array $response): RenewSuccessLog => $this->storeRenewSuccessLog(
+            afterSuccessfulResponse: fn (Branch $branch, AdminUser $adminUser, array $response): ?JsonResponse => $this->handleSuccessfulRenew(
                 $request,
                 $branch,
                 $adminUser,
@@ -262,7 +266,11 @@ class JazeApiController extends Controller
         }
 
         if ($response['successful'] && $afterSuccessfulResponse) {
-            $afterSuccessfulResponse($branch, $adminUser, $response);
+            $callbackResponse = $afterSuccessfulResponse($branch, $adminUser, $response);
+
+            if ($callbackResponse instanceof JsonResponse) {
+                return $callbackResponse;
+            }
         }
 
         return response()->json($response['data'], $response['status']);
@@ -406,11 +414,55 @@ class JazeApiController extends Controller
     /**
      * @param  array{status: int, data: mixed, successful: bool}  $response
      */
-    private function storeRenewSuccessLog(
+    private function handleSuccessfulRenew(
         Request $request,
         Branch $branch,
         AdminUser $adminUser,
         array $response
+    ): ?JsonResponse {
+        try {
+            $subscriptionResponse = Http::timeout((int) config('services.zostream_isp.timeout', 20))
+                ->acceptJson()
+                ->asJson()
+                ->post((string) config('services.zostream_isp.subscribe_url'), [
+                    'phone_no' => $this->phoneNumber($request),
+                ]);
+        } catch (Throwable $exception) {
+            return response()->json([
+                'message' => 'Zostream ISP subscription failed.',
+                'error' => $exception->getMessage(),
+            ], 503);
+        }
+
+        $subscriptionData = $subscriptionResponse->json() ?? ['raw' => $subscriptionResponse->body()];
+
+        if (! $subscriptionResponse->successful() || data_get($subscriptionData, 'status') !== 'success') {
+            return response()->json([
+                'message' => 'Zostream ISP subscription failed.',
+                'zostream_isp_response' => $subscriptionData,
+            ], $subscriptionResponse->status() >= 400 ? $subscriptionResponse->status() : 502);
+        }
+
+        $this->storeRenewSuccessLog($request, $branch, $adminUser, $response, $subscriptionData);
+
+        return null;
+    }
+
+    private function phoneNumber(Request $request): string
+    {
+        return (string) ($request->input('phone_no') ?? $request->input('phone') ?? $request->input('phoneNumber'));
+    }
+
+    /**
+     * @param  array{status: int, data: mixed, successful: bool}  $response
+     * @param  array<string, mixed>  $subscriptionData
+     */
+    private function storeRenewSuccessLog(
+        Request $request,
+        Branch $branch,
+        AdminUser $adminUser,
+        array $response,
+        array $subscriptionData
     ): RenewSuccessLog {
         $payload = $this->bodyPayload($request);
 
@@ -425,6 +477,7 @@ class JazeApiController extends Controller
                 'request' => $payload,
                 'response' => $response['data'],
                 'response_status' => $response['status'],
+                'zostream_isp_subscription' => $subscriptionData,
             ],
             'renewed_at' => now(),
         ]);

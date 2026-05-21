@@ -17,6 +17,10 @@ class RenewSuccessLogController extends Controller
 
     public function index(Request $request): JsonResponse
     {
+        $filters = $request->validate([
+            'month' => ['nullable', 'date_format:Y-m'],
+        ]);
+
         $adminUser = $this->adminUser($request);
         $query = RenewSuccessLog::query()
             ->with(['branch', 'adminUser'])
@@ -24,6 +28,14 @@ class RenewSuccessLogController extends Controller
 
         if ($adminUser->role !== 'super_admin') {
             $query->where('branch_id', $adminUser->branch_id);
+        }
+
+        if (isset($filters['month'])) {
+            $month = Carbon::createFromFormat('Y-m', $filters['month'])->startOfMonth();
+            $query->whereBetween('renewed_at', [
+                $month->copy()->startOfMonth(),
+                $month->copy()->endOfMonth(),
+            ]);
         }
 
         $renewSuccessLogs = $query->paginate(15);

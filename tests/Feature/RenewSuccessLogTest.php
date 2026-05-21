@@ -6,6 +6,7 @@ use App\Models\RenewSuccessLog;
 use App\Services\JazeApiClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
 
 uses(RefreshDatabase::class);
 
@@ -125,6 +126,61 @@ test('super admin can list renew success data from all branches', function () {
         ->assertJsonPath('data.1.jaze_user.id', 'user-2');
 });
 
+test('renew success list can be filtered by month', function () {
+    $branch = Branch::create([
+        'name' => 'Ngopa',
+        'code' => 'NGOPA',
+        'status' => 'active',
+    ]);
+
+    $superAdmin = AdminUser::create([
+        'name' => 'Super Admin',
+        'phone' => '9000000000',
+        'email' => 'super@example.com',
+        'password' => Hash::make('password123'),
+        'role' => 'super_admin',
+        'status' => 'active',
+    ]);
+
+    RenewSuccessLog::create([
+        'branch_id' => $branch->id,
+        'admin_user_id' => $superAdmin->id,
+        'jaze_user_id' => 'may-user',
+        'status' => 'success',
+        'payload' => ['userId' => 'may-user'],
+        'renewed_at' => '2026-05-10 12:00:00',
+    ]);
+    RenewSuccessLog::create([
+        'branch_id' => $branch->id,
+        'admin_user_id' => $superAdmin->id,
+        'jaze_user_id' => 'june-user',
+        'status' => 'success',
+        'payload' => ['userId' => 'june-user'],
+        'renewed_at' => '2026-06-10 12:00:00',
+    ]);
+
+    $jaze = Mockery::mock(JazeApiClient::class);
+    $jaze->shouldReceive('get')
+        ->once()
+        ->withArgs(fn (Branch $jazeBranch, string $path): bool => $jazeBranch->is($branch)
+            && $path === 'api/v1/get_details/may-user')
+        ->andReturn([
+            'status' => 200,
+            'data' => ['id' => 'may-user'],
+            'successful' => true,
+        ]);
+
+    $this->app->instance(JazeApiClient::class, $jaze);
+
+    $response = $this->getJson('/api/jaze/renew-successes?admin_login=9000000000&admin_password=password123&month=2026-05');
+
+    $response
+        ->assertOk()
+        ->assertJsonCount(1, 'data')
+        ->assertJsonPath('data.0.jaze_user_id', 'may-user')
+        ->assertJsonPath('data.0.jaze_user.id', 'may-user');
+});
+
 test('branch admin cannot store renew success data for another branch', function () {
     $ownBranch = Branch::create([
         'name' => 'Ngopa',
@@ -187,6 +243,28 @@ test('successful jaze renew stores renew success log automatically', function ()
         ]);
 
     $this->app->instance(JazeApiClient::class, $jaze);
+    Http::fake([
+        config('services.zostream_isp.subscribe_url') => Http::response([
+            'status' => 'success',
+            'message' => 'Zostream ISP Thla 1 subscription added successfully',
+            'data' => [
+                'user_created' => true,
+                'user' => [
+                    'uid' => 'subscription-user-1',
+                    'auth_phone' => '9876543210',
+                ],
+                'subscriptions' => [
+                    [
+                        'id' => 501,
+                        'plan' => [
+                            'id' => 22,
+                            'name' => 'Thla 1',
+                        ],
+                    ],
+                ],
+            ],
+        ], 200),
+    ]);
 
     $response = $this->postJson('/api/jaze/renew', [
         'admin_login' => '9000000001',
@@ -194,6 +272,7 @@ test('successful jaze renew stores renew success log automatically', function ()
         'userId' => 'user-123',
         'userName' => 'customer001',
         'accountId' => 'account-1',
+        'phone_no' => '9876543210',
         'renewDefaultSettings' => 'true',
         'isRenewPresentDate' => 'true',
     ]);
@@ -215,7 +294,11 @@ test('successful jaze renew stores renew success log automatically', function ()
     expect($renewSuccessLog->payload)
         ->toHaveKey('request.userId', 'user-123')
         ->toHaveKey('response.message', 'Renewed successfully')
+        ->toHaveKey('zostream_isp_subscription.data.user.auth_phone', '9876543210')
         ->not->toHaveKey('request.admin_password');
+
+    Http::assertSent(fn ($request): bool => $request->url() === config('services.zostream_isp.subscribe_url')
+        && $request['phone_no'] === '9876543210');
 });
 
 test('failed jaze renew does not store renew success log', function () {
@@ -250,11 +333,68 @@ test('failed jaze renew does not store renew success log', function () {
         'admin_login' => '9000000001',
         'admin_password' => 'password123',
         'userId' => 'user-123',
+        'phone_no' => '9876543210',
         'renewDefaultSettings' => 'true',
         'isRenewPresentDate' => 'true',
     ]);
 
     $response->assertStatus(422);
+
+    $this->assertDatabaseCount('renew_success_logs', 0);
+});
+
+test('successful jaze renew does not store success log when zostream subscription fails', function () {
+    $branch = Branch::create([
+        'name' => 'Ngopa',
+        'code' => 'NGOPA',
+        'status' => 'active',
+    ]);
+
+    AdminUser::create([
+        'name' => 'Branch Admin',
+        'phone' => '9000000001',
+        'email' => 'branch@example.com',
+        'password' => Hash::make('password123'),
+        'role' => 'branch_admin',
+        'branch_id' => $branch->id,
+        'status' => 'active',
+    ]);
+
+    $jaze = Mockery::mock(JazeApiClient::class);
+    $jaze->shouldReceive('post')
+        ->once()
+        ->andReturn([
+            'status' => 200,
+            'data' => ['message' => 'Renewed successfully'],
+            'successful' => true,
+        ]);
+
+    $this->app->instance(JazeApiClient::class, $jaze);
+    Http::fake([
+        config('services.zostream_isp.subscribe_url') => Http::response([
+            'status' => 'error',
+            'message' => 'Validation failed',
+            'errors' => [
+                'phone_no' => [
+                    'The phone no field is required when none of phone / phone number are present.',
+                ],
+            ],
+        ], 422),
+    ]);
+
+    $response = $this->postJson('/api/jaze/renew', [
+        'admin_login' => '9000000001',
+        'admin_password' => 'password123',
+        'userId' => 'user-123',
+        'phone_no' => '9876543210',
+        'renewDefaultSettings' => 'true',
+        'isRenewPresentDate' => 'true',
+    ]);
+
+    $response
+        ->assertStatus(422)
+        ->assertJsonPath('message', 'Zostream ISP subscription failed.')
+        ->assertJsonPath('zostream_isp_response.status', 'error');
 
     $this->assertDatabaseCount('renew_success_logs', 0);
 });
