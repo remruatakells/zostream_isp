@@ -5,12 +5,16 @@ namespace App\Http\Controllers;
 use App\Models\AdminUser;
 use App\Models\Branch;
 use App\Models\RenewSuccessLog;
+use App\Services\JazeApiClient;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Throwable;
 
 class RenewSuccessLogController extends Controller
 {
+    public function __construct(private readonly JazeApiClient $jaze) {}
+
     public function index(Request $request): JsonResponse
     {
         $adminUser = $this->adminUser($request);
@@ -22,7 +26,12 @@ class RenewSuccessLogController extends Controller
             $query->where('branch_id', $adminUser->branch_id);
         }
 
-        return response()->json($query->paginate(15));
+        $renewSuccessLogs = $query->paginate(15);
+        $renewSuccessLogs->getCollection()->transform(
+            fn (RenewSuccessLog $renewSuccessLog): RenewSuccessLog => $this->withJazeUser($renewSuccessLog)
+        );
+
+        return response()->json($renewSuccessLogs);
     }
 
     public function store(Request $request): JsonResponse
@@ -117,6 +126,33 @@ class RenewSuccessLogController extends Controller
     {
         return $adminUser->role === 'super_admin'
             || (int) $adminUser->branch_id === (int) $renewSuccessLog->branch_id;
+    }
+
+    private function withJazeUser(RenewSuccessLog $renewSuccessLog): RenewSuccessLog
+    {
+        if (! $renewSuccessLog->branch || ! $renewSuccessLog->jaze_user_id) {
+            $renewSuccessLog->setAttribute('jaze_user', null);
+
+            return $renewSuccessLog;
+        }
+
+        try {
+            $response = $this->jaze->get(
+                $renewSuccessLog->branch,
+                'api/v1/get_details/'.rawurlencode((string) $renewSuccessLog->jaze_user_id)
+            );
+        } catch (Throwable $exception) {
+            $renewSuccessLog->setAttribute('jaze_user', null);
+            $renewSuccessLog->setAttribute('jaze_user_status', 503);
+            $renewSuccessLog->setAttribute('jaze_user_error', $exception->getMessage());
+
+            return $renewSuccessLog;
+        }
+
+        $renewSuccessLog->setAttribute('jaze_user', $response['data']);
+        $renewSuccessLog->setAttribute('jaze_user_status', $response['status']);
+
+        return $renewSuccessLog;
     }
 
     /**

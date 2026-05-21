@@ -94,11 +94,35 @@ test('super admin can list renew success data from all branches', function () {
         'renewed_at' => now(),
     ]);
 
+    $jaze = Mockery::mock(JazeApiClient::class);
+    $jaze->shouldReceive('get')
+        ->once()
+        ->withArgs(fn (Branch $branch, string $path): bool => $branch->is($firstBranch)
+            && $path === 'api/v1/get_details/user-1')
+        ->andReturn([
+            'status' => 200,
+            'data' => ['id' => 'user-1', 'userName' => 'customer001'],
+            'successful' => true,
+        ]);
+    $jaze->shouldReceive('get')
+        ->once()
+        ->withArgs(fn (Branch $branch, string $path): bool => $branch->is($secondBranch)
+            && $path === 'api/v1/get_details/user-2')
+        ->andReturn([
+            'status' => 200,
+            'data' => ['id' => 'user-2', 'userName' => 'customer002'],
+            'successful' => true,
+        ]);
+
+    $this->app->instance(JazeApiClient::class, $jaze);
+
     $response = $this->getJson('/api/jaze/renew-successes?admin_login=9000000000&admin_password=password123');
 
     $response
         ->assertOk()
-        ->assertJsonCount(2, 'data');
+        ->assertJsonCount(2, 'data')
+        ->assertJsonPath('data.0.jaze_user.id', 'user-1')
+        ->assertJsonPath('data.1.jaze_user.id', 'user-2');
 });
 
 test('branch admin cannot store renew success data for another branch', function () {
