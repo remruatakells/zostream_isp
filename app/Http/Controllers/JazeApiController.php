@@ -5,15 +5,14 @@ namespace App\Http\Controllers;
 use App\Models\AdminUser;
 use App\Models\Branch;
 use App\Services\JazeApiClient;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Throwable;
 
 class JazeApiController extends Controller
 {
-    public function __construct(private readonly JazeApiClient $jaze)
-    {
-    }
+    public function __construct(private readonly JazeApiClient $jaze) {}
 
     public function authenticate(Request $request): JsonResponse
     {
@@ -211,21 +210,27 @@ class JazeApiController extends Controller
     private function send(Request $request, string $method, string $path, array $parameters = []): JsonResponse
     {
         $adminUser = $this->adminUser($request);
-        $branch = $this->branchForAdmin($adminUser, $request);
+        $branches = $this->branchesForAdmin($adminUser, $request, $method);
 
-        if (! $branch) {
+        if ($branches === null) {
             return response()->json([
                 'message' => $adminUser->role === 'super_admin'
-                    ? 'branch_id or branch_code is required for super_admin Jaze API calls.'
+                    ? 'branch_id or branch_code is required for super_admin Jaze API write calls.'
                     : 'This admin user is not assigned to a branch.',
             ], 422);
         }
 
-        if (! $this->adminCanUseBranch($adminUser, $branch)) {
-            return response()->json(['message' => 'This admin user cannot access the requested branch.'], 403);
+        if ($branches->isEmpty()) {
+            return response()->json(['message' => 'No branches are available for this Jaze API call.'], 422);
         }
 
         $path = $this->replacePathParameters($path, $parameters);
+
+        if ($branches->count() > 1) {
+            return $this->sendToBranches($branches, $method, $path, $request);
+        }
+
+        $branch = $branches->first();
 
         try {
             $response = $method === 'get'
@@ -246,15 +251,91 @@ class JazeApiController extends Controller
         return $adminUser;
     }
 
-    private function branchForAdmin(AdminUser $adminUser, Request $request): ?Branch
+    /**
+     * @return Collection<int, Branch>|null
+     */
+    private function branchesForAdmin(AdminUser $adminUser, Request $request, string $method): ?Collection
     {
         $requestedBranch = $this->requestedBranch($request);
+        $requestedBranchWasProvided = $request->filled('branch_id') || $request->filled('branch_code');
 
-        if ($adminUser->role !== 'super_admin') {
-            return $requestedBranch ?? $adminUser->branch;
+        if ($requestedBranchWasProvided && ! $requestedBranch) {
+            return new Collection;
         }
 
-        return $requestedBranch;
+        if ($adminUser->role !== 'super_admin') {
+            if ($requestedBranch && ! $this->adminCanUseBranch($adminUser, $requestedBranch)) {
+                abort(response()->json(['message' => 'This admin user cannot access the requested branch.'], 403));
+            }
+
+            return $adminUser->branch
+                ? new Collection([$adminUser->branch])
+                : null;
+        }
+
+        if ($requestedBranch) {
+            return new Collection([$requestedBranch]);
+        }
+
+        if ($method !== 'get') {
+            return null;
+        }
+
+        return Branch::query()
+            ->orderBy('name')
+            ->get();
+    }
+
+    /**
+     * @param  Collection<int, Branch>  $branches
+     */
+    private function sendToBranches(Collection $branches, string $method, string $path, Request $request): JsonResponse
+    {
+        $results = [];
+        $status = 200;
+
+        foreach ($branches as $branch) {
+            try {
+                $response = $method === 'get'
+                    ? $this->jaze->get($branch, $path, $this->queryPayload($request))
+                    : $this->jaze->post($branch, $path, $this->bodyPayload($request));
+            } catch (Throwable $exception) {
+                $status = 207;
+                $results[] = $this->branchResult($branch, [
+                    'status' => 503,
+                    'data' => ['message' => $exception->getMessage()],
+                    'successful' => false,
+                ]);
+
+                continue;
+            }
+
+            if (! $response['successful']) {
+                $status = 207;
+            }
+
+            $results[] = $this->branchResult($branch, $response);
+        }
+
+        return response()->json(['branches' => $results], $status);
+    }
+
+    /**
+     * @param  array{status: int, data: mixed, successful: bool}  $response
+     * @return array<string, mixed>
+     */
+    private function branchResult(Branch $branch, array $response): array
+    {
+        return [
+            'branch' => [
+                'id' => $branch->id,
+                'name' => $branch->name,
+                'code' => $branch->code,
+            ],
+            'status' => $response['status'],
+            'successful' => $response['successful'],
+            'data' => $response['data'],
+        ];
     }
 
     private function requestedBranch(Request $request): ?Branch
