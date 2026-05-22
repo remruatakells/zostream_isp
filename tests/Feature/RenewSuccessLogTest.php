@@ -398,3 +398,146 @@ test('successful jaze renew does not store success log when zostream subscriptio
 
     $this->assertDatabaseCount('renew_success_logs', 0);
 });
+
+test('successful add user calls zostream subscription when user is active today', function () {
+    $branch = Branch::create([
+        'name' => 'Ngopa',
+        'code' => 'NGOPA',
+        'status' => 'active',
+    ]);
+
+    AdminUser::create([
+        'name' => 'Branch Admin',
+        'phone' => '9000000001',
+        'email' => 'branch@example.com',
+        'password' => Hash::make('password123'),
+        'role' => 'branch_admin',
+        'branch_id' => $branch->id,
+        'status' => 'active',
+    ]);
+
+    $jaze = Mockery::mock(JazeApiClient::class);
+    $jaze->shouldReceive('post')
+        ->once()
+        ->withArgs(fn (Branch $jazeBranch, string $path, array $payload): bool => $jazeBranch->is($branch)
+            && $path === 'api/v1/add_user'
+            && $payload['userName'] === 'customer001')
+        ->andReturn([
+            'status' => 200,
+            'data' => ['message' => 'User added successfully'],
+            'successful' => true,
+        ]);
+
+    $this->app->instance(JazeApiClient::class, $jaze);
+    Http::fake([
+        config('services.zostream_isp.subscribe_url') => Http::response(['status' => 'success'], 200),
+    ]);
+
+    $response = $this->postJson('/api/jaze/users', [
+        'admin_login' => '9000000001',
+        'admin_password' => 'password123',
+        'userGroupId' => 'group-1',
+        'accountId' => 'account-1',
+        'userName' => 'customer001',
+        'activationDate' => 'setnow',
+        'expirationDate' => now()->addMonth()->toDateString(),
+        'phoneNumber' => '9876543210',
+    ]);
+
+    $response
+        ->assertOk()
+        ->assertJsonPath('message', 'User added successfully');
+
+    Http::assertSent(fn ($request): bool => $request->url() === config('services.zostream_isp.subscribe_url')
+        && $request['phone_no'] === '9876543210');
+});
+
+test('successful add user does not call zostream subscription for future activation date', function () {
+    $branch = Branch::create([
+        'name' => 'Ngopa',
+        'code' => 'NGOPA',
+        'status' => 'active',
+    ]);
+
+    AdminUser::create([
+        'name' => 'Branch Admin',
+        'phone' => '9000000001',
+        'email' => 'branch@example.com',
+        'password' => Hash::make('password123'),
+        'role' => 'branch_admin',
+        'branch_id' => $branch->id,
+        'status' => 'active',
+    ]);
+
+    $jaze = Mockery::mock(JazeApiClient::class);
+    $jaze->shouldReceive('post')
+        ->once()
+        ->andReturn([
+            'status' => 200,
+            'data' => ['message' => 'User added successfully'],
+            'successful' => true,
+        ]);
+
+    $this->app->instance(JazeApiClient::class, $jaze);
+    Http::fake();
+
+    $response = $this->postJson('/api/jaze/users', [
+        'admin_login' => '9000000001',
+        'admin_password' => 'password123',
+        'userGroupId' => 'group-1',
+        'accountId' => 'account-1',
+        'userName' => 'customer001',
+        'activationDate' => now()->addDay()->toDateString(),
+        'expirationDate' => now()->addMonth()->toDateString(),
+        'phoneNumber' => '9876543210',
+    ]);
+
+    $response->assertOk();
+
+    Http::assertNothingSent();
+});
+
+test('successful add user does not call zostream subscription for expired user', function () {
+    $branch = Branch::create([
+        'name' => 'Ngopa',
+        'code' => 'NGOPA',
+        'status' => 'active',
+    ]);
+
+    AdminUser::create([
+        'name' => 'Branch Admin',
+        'phone' => '9000000001',
+        'email' => 'branch@example.com',
+        'password' => Hash::make('password123'),
+        'role' => 'branch_admin',
+        'branch_id' => $branch->id,
+        'status' => 'active',
+    ]);
+
+    $jaze = Mockery::mock(JazeApiClient::class);
+    $jaze->shouldReceive('post')
+        ->once()
+        ->andReturn([
+            'status' => 200,
+            'data' => ['message' => 'User added successfully'],
+            'successful' => true,
+        ]);
+
+    $this->app->instance(JazeApiClient::class, $jaze);
+    Http::fake();
+
+    $response = $this->postJson('/api/jaze/users', [
+        'admin_login' => '9000000001',
+        'admin_password' => 'password123',
+        'userGroupId' => 'group-1',
+        'accountId' => 'account-1',
+        'userName' => 'customer001',
+        'activationDate' => now()->subMonth()->toDateString(),
+        'expirationDate' => now()->subDay()->toDateString(),
+        'phoneNumber' => '9876543210',
+    ]);
+
+    $response->assertOk();
+
+    Http::assertNothingSent();
+});

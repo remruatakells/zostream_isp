@@ -6,9 +6,11 @@ use App\Models\AdminUser;
 use App\Models\Branch;
 use App\Models\RenewSuccessLog;
 use App\Services\JazeApiClient;
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Throwable;
 
@@ -88,7 +90,19 @@ class JazeApiController extends Controller
             'userName' => ['required', 'string'],
         ]);
 
-        return $this->post($request, 'api/v1/add_user');
+        return $this->post(
+            $request,
+            'api/v1/add_user',
+            afterSuccessfulResponse: function () use ($request): ?JsonResponse {
+                if (! $this->shouldSubscribeZostreamForAddUser($request)) {
+                    return null;
+                }
+
+                $subscriptionResult = $this->subscribeZostreamIsp($request);
+
+                return $subscriptionResult instanceof JsonResponse ? $subscriptionResult : null;
+            }
+        );
     }
 
     public function editUser(Request $request, string $userId): JsonResponse
@@ -420,6 +434,22 @@ class JazeApiController extends Controller
         AdminUser $adminUser,
         array $response
     ): ?JsonResponse {
+        $subscriptionResult = $this->subscribeZostreamIsp($request);
+
+        if ($subscriptionResult instanceof JsonResponse) {
+            return $subscriptionResult;
+        }
+
+        $this->storeRenewSuccessLog($request, $branch, $adminUser, $response, $subscriptionResult);
+
+        return null;
+    }
+
+    /**
+     * @return JsonResponse|array<string, mixed>
+     */
+    private function subscribeZostreamIsp(Request $request): JsonResponse|array
+    {
         try {
             $subscriptionResponse = Http::timeout((int) config('services.zostream_isp.timeout', 20))
                 ->acceptJson()
@@ -443,9 +473,69 @@ class JazeApiController extends Controller
             ], $subscriptionResponse->status() >= 400 ? $subscriptionResponse->status() : 502);
         }
 
-        $this->storeRenewSuccessLog($request, $branch, $adminUser, $response, $subscriptionData);
+        return $subscriptionData;
+    }
 
-        return null;
+    private function shouldSubscribeZostreamForAddUser(Request $request): bool
+    {
+        $activationDate = $this->requestDate($request->input('activationDate'), treatNowAsToday: true);
+        $expirationValue = $request->input('expirationDate');
+        $expirationDate = $this->requestDate($expirationValue, treatNeverAsOpenEnded: true);
+        $expirationNeverEnds = $this->isDateKeyword($expirationValue, 'never');
+
+        if (! $activationDate || (! $expirationNeverEnds && ! $expirationDate)) {
+            return false;
+        }
+
+        $today = now()->startOfDay();
+
+        if ($activationDate->startOfDay()->greaterThan($today)) {
+            return false;
+        }
+
+        return ! $expirationDate || $expirationDate->endOfDay()->greaterThanOrEqualTo($today);
+    }
+
+    private function isDateKeyword(mixed $value, string $keyword): bool
+    {
+        return is_scalar($value) && $this->normalizedDateKeyword((string) $value) === $keyword;
+    }
+
+    private function normalizedDateKeyword(string $value): string
+    {
+        return strtolower(str_replace([' ', '_', '-'], '', trim($value)));
+    }
+
+    private function requestDate(
+        mixed $value,
+        bool $treatNowAsToday = false,
+        bool $treatNeverAsOpenEnded = false
+    ): ?CarbonInterface {
+        if (! is_scalar($value)) {
+            return null;
+        }
+
+        $date = trim((string) $value);
+
+        if ($date === '') {
+            return null;
+        }
+
+        $normalized = $this->normalizedDateKeyword($date);
+
+        if ($treatNowAsToday && in_array($normalized, ['now', 'setnow'], true)) {
+            return now();
+        }
+
+        if ($treatNeverAsOpenEnded && $normalized === 'never') {
+            return null;
+        }
+
+        try {
+            return Carbon::parse($date);
+        } catch (Throwable) {
+            return null;
+        }
     }
 
     private function phoneNumber(Request $request): string
