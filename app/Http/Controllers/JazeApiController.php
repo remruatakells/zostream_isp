@@ -464,13 +464,54 @@ class JazeApiController extends Controller
             ], 503);
         }
 
-        $subscriptionData = $subscriptionResponse->json() ?? ['raw' => $subscriptionResponse->body()];
+        $subscriptionData = $this->zostreamSubscriptionData(
+            $subscriptionResponse->json() ?? ['raw' => $subscriptionResponse->body()]
+        );
 
-        if (! $subscriptionResponse->successful() || data_get($subscriptionData, 'status') !== 'success') {
+        if (! $this->zostreamSubscriptionSucceeded($subscriptionResponse->successful(), $subscriptionData)) {
             return response()->json([
                 'message' => 'Zostream ISP subscription failed.',
                 'zostream_isp_response' => $subscriptionData,
             ], $subscriptionResponse->status() >= 400 ? $subscriptionResponse->status() : 502);
+        }
+
+        return $subscriptionData;
+    }
+
+    /**
+     * @param  array<string, mixed>  $subscriptionData
+     */
+    private function zostreamSubscriptionSucceeded(bool $httpSuccessful, array $subscriptionData): bool
+    {
+        if (! $httpSuccessful) {
+            return false;
+        }
+
+        $status = data_get($subscriptionData, 'status');
+
+        if (! is_string($status)) {
+            return true;
+        }
+
+        return strtolower($status) === 'success';
+    }
+
+    /**
+     * @param  array<string, mixed>  $subscriptionData
+     * @return array<string, mixed>
+     */
+    private function zostreamSubscriptionData(array $subscriptionData): array
+    {
+        $wrappedResponse = data_get($subscriptionData, 'response');
+
+        if (is_array($wrappedResponse) && is_string(data_get($wrappedResponse, 'status'))) {
+            return $wrappedResponse;
+        }
+
+        $wrappedOriginal = data_get($subscriptionData, 'response.original');
+
+        if (is_array($wrappedOriginal) && is_string(data_get($wrappedOriginal, 'status'))) {
+            return $wrappedOriginal;
         }
 
         return $subscriptionData;
