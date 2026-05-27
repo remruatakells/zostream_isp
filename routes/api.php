@@ -4,6 +4,7 @@ use App\Http\Controllers\AdminAuthController;
 use App\Http\Controllers\AdminUserController;
 use App\Http\Controllers\BranchController;
 use App\Http\Controllers\JazeApiController;
+use App\Http\Controllers\JazePlanController;
 use App\Http\Controllers\RenewSuccessLogController;
 use Illuminate\Support\Facades\Route;
 
@@ -16,6 +17,7 @@ Route::middleware('admin.auth')->group(function (): void {
 
     Route::apiResource('branches', BranchController::class);
     Route::apiResource('admin-users', AdminUserController::class);
+    Route::apiResource('jaze-plans', JazePlanController::class);
 
     Route::prefix('jaze')->group(function (): void {
         Route::post('auth/authenticate', [JazeApiController::class, 'authenticate']);
@@ -53,4 +55,6 @@ Route::middleware('admin.auth')->group(function (): void {
 
         Route::get('get_logofftime_onlinestatus/{userId}', [JazeApiController::class, 'userLogoffTimeOnlineStatus']);
     });
+
+    Route::get('v1/get_logofftime_onlinestatus/{userId}', [JazeApiController::class, 'userLogoffTimeOnlineStatus']);
 });
