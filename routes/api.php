@@ -52,8 +52,6 @@ Route::middleware('admin.auth')->group(function (): void {
 
         Route::get('profiles/bandwidth', [JazeApiController::class, 'bandwidthDetails']);
         Route::get('profiles/{profileId}', [JazeApiController::class, 'profileDetails']);
-
-        Route::get('get_logofftime_onlinestatus/{userId}', [JazeApiController::class, 'userLogoffTimeOnlineStatus']);
     });
 
     Route::get('v1/get_logofftime_onlinestatus/{userId}', [JazeApiController::class, 'userLogoffTimeOnlineStatus']);
