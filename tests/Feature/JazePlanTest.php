@@ -60,7 +60,7 @@ test('admin can update jaze plan amount', function () {
         'amount' => 799,
     ]);
 
-    $response = $this->patchJson("/api/jaze-plans/{$plan->id}", [
+    $response = $this->patchJson("/api/jaze-plans/{$plan->group_id}", [
         'admin_login' => '9000000001',
         'admin_password' => 'password123',
         'amount' => 899,
@@ -71,7 +71,20 @@ test('admin can update jaze plan amount', function () {
         ->assertJsonPath('amount', '899.00');
 
     $this->assertDatabaseHas('jaze_plans', [
-        'id' => $plan->id,
+        'group_id' => $plan->group_id,
         'amount' => 899,
     ]);
+});
+
+test('jaze plan seeder stores group id as the key', function () {
+    $this->seed(JazePlanSeeder::class);
+
+    $this->assertDatabaseHas('jaze_plans', [
+        'group_id' => '631431159525504',
+        'group_name' => 'ROOKIE',
+        'profile_name' => 'ZOSTREAM_ROOKIE',
+        'amount' => 0,
+    ]);
+
+    expect(JazePlan::find('631431159525504'))->not->toBeNull();
 });
