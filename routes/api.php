@@ -25,6 +25,7 @@ Route::middleware('admin.auth')->group(function (): void {
         Route::post('users', [JazeApiController::class, 'addUser']);
         Route::post('users/{userId}', [JazeApiController::class, 'editUser']);
         Route::get('users/username/{username}', [JazeApiController::class, 'userByUsername']);
+        Route::get('users/{userId}/logofftime-onlinestatus', [JazeApiController::class, 'userLogoffTimeOnlineStatus']);
         Route::get('users/{userId}', [JazeApiController::class, 'userDetails']);
         Route::get('users/{userId}/balance', [JazeApiController::class, 'userBalance']);
         Route::get('groups', [JazeApiController::class, 'groupDetails']);
@@ -49,5 +50,7 @@ Route::middleware('admin.auth')->group(function (): void {
 
         Route::get('profiles/bandwidth', [JazeApiController::class, 'bandwidthDetails']);
         Route::get('profiles/{profileId}', [JazeApiController::class, 'profileDetails']);
+
+        Route::get('get_logofftime_onlinestatus/{userId}', [JazeApiController::class, 'userLogoffTimeOnlineStatus']);
     });
 });

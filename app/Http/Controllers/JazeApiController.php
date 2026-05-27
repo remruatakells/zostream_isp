@@ -67,6 +67,11 @@ class JazeApiController extends Controller
         return $this->get($request, 'api/v1/get_balance/{userId}', ['userId' => $userId]);
     }
 
+    public function userLogoffTimeOnlineStatus(Request $request, string $userId): JsonResponse
+    {
+        return $this->get($request, 'api/v1/get_logofftime_onlinestatus/{userId}', ['userId' => $userId]);
+    }
+
     public function groupDetails(Request $request): JsonResponse
     {
         return $this->get($request, 'api/v1/get_group_details');
