@@ -1,1 +1,1 @@
-//
+import "./app.tsx";

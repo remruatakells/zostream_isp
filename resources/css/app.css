@@ -1,11 +1,87 @@
-@import 'tailwindcss';
+@import "tailwindcss";
 
-@source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
-@source '../../storage/framework/views/*.php';
-@source '../**/*.blade.php';
-@source '../**/*.js';
+:root {
+    --background: #f5efe3;
+    --foreground: #1d2433;
+    --muted-foreground: #5f6a7b;
+    --panel: rgba(255, 250, 243, 0.72);
+    --panel-soft: rgba(255, 255, 255, 0.5);
+    --input: rgba(255, 255, 255, 0.78);
+    --border-subtle: rgba(44, 62, 80, 0.12);
+    --border-strong: rgba(44, 62, 80, 0.2);
+    --accent: #0f9f9c;
+    --accent-strong: #0b6b69;
+    --accent-soft: rgba(15, 159, 156, 0.16);
+    --accent-foreground: #f8fffe;
+    --orb-strong: rgba(249, 115, 22, 0.28);
+    --orb-soft: rgba(15, 159, 156, 0.22);
+}
 
-@theme {
-    --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
-        'Segoe UI Symbol', 'Noto Color Emoji';
+@theme inline {
+    --color-background: var(--background);
+    --color-foreground: var(--foreground);
+    --font-sans: var(--font-manrope);
+    --font-mono: var(--font-plex-mono);
+}
+
+[data-theme="dark"] {
+    --background: #0f1722;
+    --foreground: #edf3ff;
+    --muted-foreground: #9da9bc;
+    --panel: rgba(13, 21, 33, 0.78);
+    --panel-soft: rgba(18, 28, 43, 0.64);
+    --input: rgba(15, 25, 38, 0.92);
+    --border-subtle: rgba(164, 184, 211, 0.14);
+    --border-strong: rgba(164, 184, 211, 0.22);
+    --accent: #39c8b7;
+    --accent-strong: #7ef0db;
+    --accent-soft: rgba(57, 200, 183, 0.18);
+    --accent-foreground: #042523;
+    --orb-strong: rgba(56, 189, 248, 0.18);
+    --orb-soft: rgba(14, 165, 164, 0.18);
+}
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        --background: #0f1722;
+        --foreground: #edf3ff;
+        --muted-foreground: #9da9bc;
+        --panel: rgba(13, 21, 33, 0.78);
+        --panel-soft: rgba(18, 28, 43, 0.64);
+        --input: rgba(15, 25, 38, 0.92);
+        --border-subtle: rgba(164, 184, 211, 0.14);
+        --border-strong: rgba(164, 184, 211, 0.22);
+        --accent: #39c8b7;
+        --accent-strong: #7ef0db;
+        --accent-soft: rgba(57, 200, 183, 0.18);
+        --accent-foreground: #042523;
+        --orb-strong: rgba(56, 189, 248, 0.18);
+        --orb-soft: rgba(14, 165, 164, 0.18);
+    }
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html {
+    background: var(--background);
+}
+
+body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-manrope), sans-serif;
+    background-image:
+        radial-gradient(
+            circle at top left,
+            rgba(255, 255, 255, 0.54),
+            transparent 22%
+        ),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.14), transparent 36%);
+}
+
+::selection {
+    background: var(--accent);
+    color: var(--accent-foreground);
 }
