@@ -102,3 +102,6 @@ Route::get('/test-group', function (Request $request, JazeApiController $control
 
     return $controller->groupDetailsById($request, $groupId);
 });
+
+Route::view('/{any}', 'app')
+    ->where('any', '^(?!api).*$');
