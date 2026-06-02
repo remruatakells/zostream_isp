@@ -71,6 +71,7 @@ class JazePlanController extends Controller
                 'max:100',
                 Rule::unique('jaze_plans', 'group_id')->ignore($jazePlan),
             ],
+            'user_group_id' => ['nullable', 'string', 'max:100'],
             'group_name' => [$requiredRule, 'string', 'max:150'],
             'profile_id' => ['nullable', 'string', 'max:100'],
             'profile_name' => [$requiredRule, 'string', 'max:150'],

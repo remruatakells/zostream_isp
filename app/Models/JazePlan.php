@@ -17,6 +17,7 @@ class JazePlan extends Model
 
     protected $fillable = [
         'group_id',
+        'user_group_id',
         'group_name',
         'profile_id',
         'profile_name',
