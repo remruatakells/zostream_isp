@@ -32,10 +32,21 @@
             padding: 12px 16px;
             cursor: pointer;
         }
+
+        pre {
+            background: #f3f4f6;
+            border: 1px solid #d1d5db;
+            overflow-x: auto;
+            padding: 12px;
+        }
     </style>
 </head>
 <body>
     <h1>Test Jaze User</h1>
+    @if (! empty($branchCredentials))
+        <h2>Branch Jaze Credentials</h2>
+        <pre>{{ json_encode($branchCredentials, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
+    @endif
     @if (! empty($groupError))
         <p style="color: #b91c1c; font-weight: 600;">{{ $groupError }}</p>
     @endif
