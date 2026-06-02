@@ -37,7 +37,7 @@ class AdminUserController extends Controller
         $data = $this->validatedData($request);
 
         if ($authAdmin->role === 'branch_admin') {
-            if (! in_array($data['role'] ?? 'staff', ['staff', 'support'], true)) {
+            if (! in_array($data['role'] ?? 'user', ['staff', 'support', 'user'], true)) {
                 return $this->forbidden();
             }
 
@@ -122,8 +122,10 @@ class AdminUserController extends Controller
                 Rule::unique('admin_users', 'email')->ignore($adminUser),
             ],
             'password' => $passwordRules,
-            'role' => ['nullable', Rule::in(['super_admin', 'branch_admin', 'staff', 'support'])],
+            'role' => ['nullable', Rule::in(['super_admin', 'branch_admin', 'staff', 'support', 'user'])],
             'branch_id' => ['nullable', 'integer', Rule::exists('branches', 'id')],
+            'jaze_user_id' => ['nullable', 'string', 'max:150'],
+            'jaze_username' => ['nullable', 'string', 'max:150'],
             'status' => ['nullable', Rule::in(['active', 'inactive', 'blocked'])],
             'last_login_at' => ['nullable', 'date'],
         ]))->except(['admin_login', 'admin_password'])->all();
@@ -177,6 +179,7 @@ class AdminUserController extends Controller
                 $candidate = AdminUser::query()
                     ->where('phone', $login)
                     ->orWhere('email', $login)
+                    ->orWhere('jaze_username', $login)
                     ->first();
 
                 if ($candidate && $candidate->status === 'active' && Hash::check($password, $candidate->password)) {
@@ -185,7 +188,7 @@ class AdminUserController extends Controller
             }
 
             abort(response()->json([
-                'message' => 'Admin authentication is required.',
+                'message' => 'Authentication is required.',
             ], 401));
         }
 
@@ -194,6 +197,6 @@ class AdminUserController extends Controller
 
     private function forbidden(): JsonResponse
     {
-        return response()->json(['message' => 'Forbidden for this admin role or branch.'], 403);
+        return response()->json(['message' => 'Forbidden for this role or branch.'], 403);
     }
 }

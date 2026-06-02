@@ -20,6 +20,7 @@ class AdminAuthController extends Controller
         $adminUser = AdminUser::query()
             ->where('phone', $credentials['login'])
             ->orWhere('email', $credentials['login'])
+            ->orWhere('jaze_username', $credentials['login'])
             ->first();
 
         if (! $adminUser || ! Hash::check($credentials['password'], $adminUser->password)) {
@@ -27,7 +28,7 @@ class AdminAuthController extends Controller
         }
 
         if ($adminUser->status !== 'active') {
-            return response()->json(['message' => 'Admin user is not active.'], 403);
+            return response()->json(['message' => 'User is not active.'], 403);
         }
 
         $token = Str::random(80);

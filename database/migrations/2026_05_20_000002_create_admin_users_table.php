@@ -14,8 +14,10 @@ return new class extends Migration
             $table->string('phone', 20)->unique();
             $table->string('email', 150)->nullable()->unique();
             $table->string('password');
-            $table->enum('role', ['super_admin', 'branch_admin', 'staff', 'support'])->default('staff');
+            $table->enum('role', ['super_admin', 'branch_admin', 'staff', 'support', 'user'])->default('user');
             $table->foreignId('branch_id')->nullable()->constrained()->nullOnDelete();
+            $table->string('jaze_user_id')->nullable()->index();
+            $table->string('jaze_username')->nullable()->index();
             $table->enum('status', ['active', 'inactive', 'blocked'])->default('active');
             $table->timestamp('last_login_at')->nullable();
             $table->timestamps();

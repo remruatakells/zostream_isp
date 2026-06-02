@@ -19,6 +19,8 @@ class AdminUser extends Authenticatable
         'api_token',
         'role',
         'branch_id',
+        'jaze_user_id',
+        'jaze_username',
         'status',
         'last_login_at',
     ];
@@ -39,5 +41,15 @@ class AdminUser extends Authenticatable
     public function branch(): BelongsTo
     {
         return $this->belongsTo(Branch::class);
+    }
+
+    public function isAdminRole(): bool
+    {
+        return in_array($this->role, ['super_admin', 'branch_admin', 'staff', 'support'], true);
+    }
+
+    public function isCustomerRole(): bool
+    {
+        return $this->role === 'user';
     }
 }

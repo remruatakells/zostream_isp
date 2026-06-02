@@ -20,7 +20,7 @@ class AuthenticateAdminUser
 
         if (! $adminUser || $adminUser->status !== 'active') {
             return response()->json([
-                'message' => 'Admin authentication is required. Send a bearer token or admin_login and admin_password.',
+                'message' => 'Authentication is required. Send a bearer token or login credentials.',
             ], 401);
         }
 
@@ -52,6 +52,7 @@ class AuthenticateAdminUser
         $adminUser = AdminUser::query()
             ->where('phone', $login)
             ->orWhere('email', $login)
+            ->orWhere('jaze_username', $login)
             ->first();
 
         if (! $adminUser || ! Hash::check($password, $adminUser->password)) {
