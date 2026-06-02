@@ -2,7 +2,6 @@
 
 use App\Http\Controllers\JazeApiController;
 use App\Models\AdminUser;
-use App\Models\Branch;
 use App\Models\JazePlan;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -35,17 +34,9 @@ Route::match(['get', 'post'], '/test-user', function (Request $request, JazeApiC
     if ($request->isMethod('get')) {
         $groups = [];
         $groupError = null;
-        $branchCredentials = null;
         $adminUser = AdminUser::where('phone', $defaults['admin_login'])->first();
 
         if ($adminUser && Hash::check((string) $defaults['admin_password'], $adminUser->password)) {
-            $branch = $adminUser->branch ?: Branch::where('code', $defaults['branch_code'])->first();
-            $branchCredentials = $branch ? [
-                'branch_code' => $branch->code,
-                'jaze_api_token' => $branch->jaze_api_token,
-                'jaze_api_key' => $branch->jaze_api_key,
-            ] : null;
-
             $request->attributes->set('admin_user', $adminUser);
             $request->merge([
                 'branch_code' => $defaults['branch_code'],
@@ -71,7 +62,6 @@ Route::match(['get', 'post'], '/test-user', function (Request $request, JazeApiC
             'defaults' => $defaults,
             'groups' => $groups,
             'groupError' => $groupError,
-            'branchCredentials' => $branchCredentials,
         ]));
     }
 
@@ -112,6 +102,3 @@ Route::get('/test-group', function (Request $request, JazeApiController $control
 
     return $controller->groupDetailsById($request, $groupId);
 });
-
-Route::view('/{any}', 'app')
-    ->where('any', '^(?!api).*$');

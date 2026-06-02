@@ -38,6 +38,7 @@
             border: 1px solid #d1d5db;
             overflow-x: auto;
             padding: 12px;
+            white-space: pre-wrap;
         }
     </style>
 </head>
@@ -50,7 +51,7 @@
     @if (! empty($groupError))
         <p style="color: #b91c1c; font-weight: 600;">{{ $groupError }}</p>
     @endif
-    <form method="post" action="/test-user" enctype="multipart/form-data">
+    <form id="test-user-form" method="post" action="/test-user" enctype="multipart/form-data">
         @csrf
         @foreach ($defaults as $name => $value)
             <label>
@@ -79,5 +80,44 @@
         </label>
         <button type="submit">Create test user</button>
     </form>
+    <h2>Response</h2>
+    <pre id="test-user-response">Submit the form to see the response.</pre>
+    <script>
+        const branchCredentials = @json($branchCredentials ?? null);
+        console.log("Test user branch Jaze credentials", branchCredentials);
+
+        document.getElementById("test-user-form").addEventListener("submit", async (event) => {
+            event.preventDefault();
+
+            const form = event.currentTarget;
+            const responseTarget = document.getElementById("test-user-response");
+            const formData = new FormData(form);
+            const submittedPayload = Object.fromEntries(formData.entries());
+
+            console.log("Test user branch Jaze credentials", branchCredentials);
+            console.log("Test user submitted payload", submittedPayload);
+            responseTarget.textContent = "Submitting...";
+
+            try {
+                const response = await fetch(form.action, {
+                    method: "POST",
+                    body: formData,
+                    headers: {
+                        Accept: "application/json",
+                    },
+                });
+                const data = await response.json().catch(() => null);
+
+                console.log("Test user response status", response.status);
+                console.log("Test user response payload", data);
+                console.log("Test user response debug", data?._debug ?? null);
+
+                responseTarget.textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                console.error("Test user submit failed", error);
+                responseTarget.textContent = error instanceof Error ? error.message : String(error);
+            }
+        });
+    </script>
 </body>
 </html>
