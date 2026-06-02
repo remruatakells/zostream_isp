@@ -17,11 +17,7 @@ class AdminAuthController extends Controller
             'password' => ['required', 'string'],
         ]);
 
-        $adminUser = AdminUser::query()
-            ->where('phone', $credentials['login'])
-            ->orWhere('email', $credentials['login'])
-            ->orWhere('jaze_username', $credentials['login'])
-            ->first();
+        $adminUser = AdminUser::findByLogin($credentials['login']);
 
         if (! $adminUser || ! Hash::check($credentials['password'], $adminUser->password)) {
             return response()->json(['message' => 'Invalid login or password.'], 401);

@@ -176,11 +176,7 @@ class AdminUserController extends Controller
             $password = $request->input('admin_password', $request->header('X-Admin-Password'));
 
             if ($login && $password) {
-                $candidate = AdminUser::query()
-                    ->where('phone', $login)
-                    ->orWhere('email', $login)
-                    ->orWhere('jaze_username', $login)
-                    ->first();
+                $candidate = AdminUser::findByLogin($login);
 
                 if ($candidate && $candidate->status === 'active' && Hash::check($password, $candidate->password)) {
                     return $candidate;

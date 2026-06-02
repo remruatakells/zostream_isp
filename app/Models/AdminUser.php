@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\Schema;
 
 class AdminUser extends Authenticatable
 {
@@ -51,5 +52,18 @@ class AdminUser extends Authenticatable
     public function isCustomerRole(): bool
     {
         return $this->role === 'user';
+    }
+
+    public static function findByLogin(string $login): ?self
+    {
+        $query = static::query()
+            ->where('phone', $login)
+            ->orWhere('email', $login);
+
+        if (Schema::hasColumn('admin_users', 'jaze_username')) {
+            $query->orWhere('jaze_username', $login);
+        }
+
+        return $query->first();
     }
 }

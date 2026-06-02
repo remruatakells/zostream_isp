@@ -49,11 +49,7 @@ class AuthenticateAdminUser
             return null;
         }
 
-        $adminUser = AdminUser::query()
-            ->where('phone', $login)
-            ->orWhere('email', $login)
-            ->orWhere('jaze_username', $login)
-            ->first();
+        $adminUser = AdminUser::findByLogin($login);
 
         if (! $adminUser || ! Hash::check($password, $adminUser->password)) {
             return null;

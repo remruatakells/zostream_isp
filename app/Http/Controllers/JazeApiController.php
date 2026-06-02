@@ -13,6 +13,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Throwable;
 
@@ -668,7 +669,7 @@ class JazeApiController extends Controller
                     $query->orWhere('jaze_user_id', $jazeUserId);
                 }
 
-                if ($jazeUsername) {
+                if ($jazeUsername && Schema::hasColumn('admin_users', 'jaze_username')) {
                     $query->orWhere('jaze_username', $jazeUsername);
                 }
 
