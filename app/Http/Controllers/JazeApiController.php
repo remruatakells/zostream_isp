@@ -101,7 +101,17 @@ class JazeApiController extends Controller
         return $this->post(
             $request,
             'api/v1/add_user',
-            
+            afterSuccessfulResponse: function (Branch $branch, AdminUser $adminUser, array $response) use ($request): ?JsonResponse {
+                $this->storeLocalUserAfterJazeAdd($request, $branch, $response);
+
+                if (! $this->shouldSubscribeZostreamForAddUser($request)) {
+                    return null;
+                }
+
+                $subscriptionResult = $this->subscribeZostreamIsp($request);
+
+                return $subscriptionResult instanceof JsonResponse ? $subscriptionResult : null;
+            }
         );
     }
 
