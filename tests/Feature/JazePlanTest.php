@@ -83,7 +83,7 @@ test('jaze plan seeder stores group id as the key', function () {
         'group_id' => '631431159525504',
         'group_name' => 'ROOKIE',
         'profile_name' => 'ZOSTREAM_ROOKIE',
-        'amount' => 0,
+        'amount' => 550,
     ]);
 
     expect(JazePlan::find('631431159525504'))->not->toBeNull();

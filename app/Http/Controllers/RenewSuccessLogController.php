@@ -26,7 +26,9 @@ class RenewSuccessLogController extends Controller
             ->with(['branch', 'adminUser'])
             ->latest();
 
-        if ($adminUser->role !== 'super_admin') {
+        if ($adminUser->isCustomerRole()) {
+            $query->where('admin_user_id', $adminUser->id);
+        } elseif ($adminUser->role !== 'super_admin') {
             $query->where('branch_id', $adminUser->branch_id);
         }
 
@@ -49,6 +51,11 @@ class RenewSuccessLogController extends Controller
     public function store(Request $request): JsonResponse
     {
         $adminUser = $this->adminUser($request);
+
+        if ($adminUser->isCustomerRole() && ! $this->customerOwnsLogPayload($adminUser, $request)) {
+            return response()->json(['message' => 'This user can only store their own renew success data.'], 403);
+        }
+
         $branch = $this->branchForAdmin($adminUser, $request);
 
         if (! $branch) {
@@ -136,8 +143,29 @@ class RenewSuccessLogController extends Controller
 
     private function canAccessRenewSuccessLog(AdminUser $adminUser, RenewSuccessLog $renewSuccessLog): bool
     {
+        if ($adminUser->isCustomerRole()) {
+            return (int) $adminUser->id === (int) $renewSuccessLog->admin_user_id;
+        }
+
         return $adminUser->role === 'super_admin'
             || (int) $adminUser->branch_id === (int) $renewSuccessLog->branch_id;
+    }
+
+    private function customerOwnsLogPayload(AdminUser $adminUser, Request $request): bool
+    {
+        $jazeUserId = $request->input('userId', $request->input('user_id'));
+        $jazeUsername = $request->input('userName', $request->input('username'));
+
+        return $this->sameFilledValue($adminUser->jaze_user_id, $jazeUserId)
+            || $this->sameFilledValue($adminUser->jaze_username, $jazeUsername);
+    }
+
+    private function sameFilledValue(mixed $expected, mixed $actual): bool
+    {
+        $expectedValue = strtolower(trim((string) $expected));
+        $actualValue = strtolower(trim((string) $actual));
+
+        return $expectedValue !== '' && $actualValue !== '' && $expectedValue === $actualValue;
     }
 
     private function withJazeUser(RenewSuccessLog $renewSuccessLog): RenewSuccessLog

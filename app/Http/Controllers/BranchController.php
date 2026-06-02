@@ -13,6 +13,11 @@ class BranchController extends Controller
     public function index(Request $request): JsonResponse
     {
         $adminUser = $this->adminUser($request);
+
+        if ($adminUser->isCustomerRole()) {
+            return $this->forbidden();
+        }
+
         $query = Branch::query()->withCount('adminUsers')->latest();
 
         if ($adminUser->role !== 'super_admin') {
@@ -37,6 +42,10 @@ class BranchController extends Controller
 
     public function show(Request $request, Branch $branch): JsonResponse
     {
+        if ($this->adminUser($request)->isCustomerRole()) {
+            return $this->forbidden();
+        }
+
         if (! $this->canAccessBranch($request, $branch)) {
             return $this->forbidden();
         }
@@ -120,6 +129,6 @@ class BranchController extends Controller
 
     private function forbidden(): JsonResponse
     {
-        return response()->json(['message' => 'Forbidden for this admin role or branch.'], 403);
+        return response()->json(['message' => 'Forbidden for this role or branch.'], 403);
     }
 }

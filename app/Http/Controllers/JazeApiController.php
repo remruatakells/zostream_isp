@@ -10,8 +10,10 @@ use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 use Throwable;
 
 class JazeApiController extends Controller
@@ -98,7 +100,9 @@ class JazeApiController extends Controller
         return $this->post(
             $request,
             'api/v1/add_user',
-            afterSuccessfulResponse: function () use ($request): ?JsonResponse {
+            afterSuccessfulResponse: function (Branch $branch, AdminUser $adminUser, array $response) use ($request): ?JsonResponse {
+                $this->storeLocalUserAfterJazeAdd($request, $branch, $response);
+
                 if (! $this->shouldSubscribeZostreamForAddUser($request)) {
                     return null;
                 }
@@ -254,6 +258,11 @@ class JazeApiController extends Controller
         ?callable $afterSuccessfulResponse = null
     ): JsonResponse {
         $adminUser = $this->adminUser($request);
+
+        if ($adminUser->isCustomerRole() && ! $this->customerCanCall($adminUser, $method, $path, $parameters, $request)) {
+            return response()->json(['message' => 'This user can only access their own data.'], 403);
+        }
+
         $branches = $this->branchesForAdmin($adminUser, $request, $method);
 
         if ($branches === null) {
@@ -279,9 +288,13 @@ class JazeApiController extends Controller
         try {
             $response = $method === 'get'
                 ? $this->jaze->get($branch, $path, $this->queryPayload($request))
-                : $this->jaze->post($branch, $path, $this->bodyPayload($request));
+                : $this->jaze->post($branch, $path, $this->bodyPayload($request), $this->filePayload($request));
         } catch (Throwable $exception) {
             return response()->json(['message' => $exception->getMessage()], 503);
+        }
+
+        if ($response['successful'] && $adminUser->isCustomerRole()) {
+            $response['data'] = $this->customerScopedResponseData($adminUser, $path, $response['data']);
         }
 
         if ($response['successful'] && $afterSuccessfulResponse) {
@@ -350,7 +363,7 @@ class JazeApiController extends Controller
             try {
                 $response = $method === 'get'
                     ? $this->jaze->get($branch, $path, $this->queryPayload($request))
-                    : $this->jaze->post($branch, $path, $this->bodyPayload($request));
+                    : $this->jaze->post($branch, $path, $this->bodyPayload($request), $this->filePayload($request));
             } catch (Throwable $exception) {
                 $status = 207;
                 $results[] = $this->branchResult($branch, [
@@ -400,6 +413,10 @@ class JazeApiController extends Controller
             return Branch::where('code', $request->input('branch_code'))->first();
         }
 
+        if ($request->filled('accountId')) {
+            return Branch::where('code', $request->input('accountId'))->first();
+        }
+
         return null;
     }
 
@@ -407,6 +424,142 @@ class JazeApiController extends Controller
     {
         return $adminUser->role === 'super_admin'
             || (int) $adminUser->branch_id === (int) $branch->id;
+    }
+
+    /**
+     * @param  array<string, mixed>  $parameters
+     */
+    private function customerCanCall(
+        AdminUser $adminUser,
+        string $method,
+        string $path,
+        array $parameters,
+        Request $request
+    ): bool {
+        if ($method === 'get') {
+            if (in_array($path, [
+                'api/v1/get_users/{page}/{perPage}/{status}',
+                'api/v1/get_all',
+                'api/v1/get_group_details',
+                'api/v1/get_group_details/{groupId}',
+            ], true)) {
+                return true;
+            }
+
+            if (in_array($path, [
+                'api/v1/get_details/{userId}',
+                'api/v1/get_balance/{userId}',
+                'api/v1/get_logofftime_onlinestatus/{userId}',
+                'api/v1/get_payment_details/{userId}',
+            ], true)) {
+                return $this->customerOwnsJazeUserId($adminUser, $parameters['userId'] ?? null);
+            }
+
+            return false;
+        }
+
+        if ($path === 'api/v1/renew') {
+            return $this->customerOwnsJazeUserId($adminUser, $request->input('userId'));
+        }
+
+        if ($path === 'api/v1/make_payment') {
+            return $this->customerOwnsJazeUserId($adminUser, $request->input('userId'));
+        }
+
+        if ($path === 'api/v1/raise_ticket') {
+            return $this->customerOwnsJazeUserId($adminUser, $request->input('userId'));
+        }
+
+        return false;
+    }
+
+    private function customerOwnsJazeUserId(AdminUser $adminUser, mixed $userId): bool
+    {
+        $linkedUserId = trim((string) $adminUser->jaze_user_id);
+
+        return $linkedUserId !== '' && $linkedUserId === trim((string) $userId);
+    }
+
+    private function customerScopedResponseData(AdminUser $adminUser, string $path, mixed $data): mixed
+    {
+        if ($path !== 'api/v1/get_all' && ! str_starts_with($path, 'api/v1/get_users/')) {
+            return $data;
+        }
+
+        if (! is_array($data)) {
+            return $data;
+        }
+
+        $users = data_get($data, 'data');
+
+        if (is_array($users)) {
+            $filteredUsers = $this->filterCustomerUsers($adminUser, $users);
+
+            data_set($data, 'data', $filteredUsers);
+            data_set($data, 'totalRecords', count($filteredUsers));
+
+            return $data;
+        }
+
+        if ($this->isListOfUsers($data)) {
+            return $this->filterCustomerUsers($adminUser, $data);
+        }
+
+        return $this->customerUserMatches($adminUser, $data) ? $data : [];
+    }
+
+    /**
+     * @param  array<int, mixed>  $users
+     */
+    private function filterCustomerUsers(AdminUser $adminUser, array $users): array
+    {
+        return array_values(array_filter(
+            $users,
+            fn (mixed $user): bool => is_array($user) && $this->customerUserMatches($adminUser, $user)
+        ));
+    }
+
+    private function isListOfUsers(array $data): bool
+    {
+        foreach ($data as $item) {
+            if (! is_array($item)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * @param  array<string, mixed>  $user
+     */
+    private function customerUserMatches(AdminUser $adminUser, array $user): bool
+    {
+        $matchers = [
+            [$adminUser->jaze_user_id, data_get($user, 'id')],
+            [$adminUser->jaze_user_id, data_get($user, 'userId')],
+            [$adminUser->jaze_username, data_get($user, 'username')],
+            [$adminUser->phone, data_get($user, 'phone')],
+            [$adminUser->phone, data_get($user, 'phoneNumber')],
+            [$adminUser->email, data_get($user, 'email')],
+            [$adminUser->email, data_get($user, 'emailId')],
+        ];
+
+        foreach ($matchers as [$expected, $actual]) {
+            if ($this->sameFilledValue($expected, $actual)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function sameFilledValue(mixed $expected, mixed $actual): bool
+    {
+        $expectedValue = strtolower(trim((string) $expected));
+        $actualValue = strtolower(trim((string) $actual));
+
+        return $expectedValue !== '' && $actualValue !== '' && $expectedValue === $actualValue;
     }
 
     /**
@@ -426,7 +579,17 @@ class JazeApiController extends Controller
     {
         return collect($request->all())
             ->except(['admin_login', 'admin_password', 'branch_id', 'branch_code'])
-            ->filter(fn (mixed $value): bool => $value !== null && $value !== '')
+            ->filter(fn (mixed $value): bool => $value !== null && $value !== '' && ! $value instanceof UploadedFile)
+            ->all();
+    }
+
+    /**
+     * @return array<string, UploadedFile>
+     */
+    private function filePayload(Request $request): array
+    {
+        return collect($request->allFiles())
+            ->filter(fn (mixed $value): bool => $value instanceof UploadedFile)
             ->all();
     }
 
@@ -448,6 +611,144 @@ class JazeApiController extends Controller
         $this->storeRenewSuccessLog($request, $branch, $adminUser, $response, $subscriptionResult);
 
         return null;
+    }
+
+    /**
+     * @param  array{status: int, data: mixed, successful: bool}  $response
+     */
+    private function storeLocalUserAfterJazeAdd(Request $request, Branch $branch, array $response): void
+    {
+        $jazeUserId = $this->firstFilledScalar([
+            data_get($response, 'data.userId'),
+            data_get($response, 'data.user_id'),
+            data_get($response, 'data.id'),
+            data_get($response, 'data.data.userId'),
+            data_get($response, 'data.data.user_id'),
+            data_get($response, 'data.data.id'),
+            $request->input('userId'),
+            $request->input('user_id'),
+        ]);
+        $jazeUsername = $this->firstFilledScalar([
+            data_get($response, 'data.username'),
+            data_get($response, 'data.userName'),
+            data_get($response, 'data.user_name'),
+            data_get($response, 'data.data.username'),
+            data_get($response, 'data.data.userName'),
+            data_get($response, 'data.data.user_name'),
+            $request->input('userName'),
+            $request->input('username'),
+        ]);
+        $phone = $this->firstFilledScalar([
+            $request->input('phoneNumber'),
+            $request->input('phone'),
+            $request->input('phone_no'),
+            data_get($response, 'data.phoneNumber'),
+            data_get($response, 'data.phone'),
+            data_get($response, 'data.phone_no'),
+            data_get($response, 'data.data.phoneNumber'),
+            data_get($response, 'data.data.phone'),
+            data_get($response, 'data.data.phone_no'),
+        ]);
+        $email = $this->firstFilledScalar([
+            $request->input('emailId'),
+            $request->input('email'),
+            data_get($response, 'data.emailId'),
+            data_get($response, 'data.email'),
+            data_get($response, 'data.data.emailId'),
+            data_get($response, 'data.data.email'),
+        ]);
+
+        if (! $jazeUserId && ! $jazeUsername && ! $phone && ! $email) {
+            return;
+        }
+
+        $localUser = AdminUser::query()
+            ->where(function ($query) use ($jazeUserId, $jazeUsername, $phone, $email): void {
+                if ($jazeUserId) {
+                    $query->orWhere('jaze_user_id', $jazeUserId);
+                }
+
+                if ($jazeUsername) {
+                    $query->orWhere('jaze_username', $jazeUsername);
+                }
+
+                if ($phone) {
+                    $query->orWhere('phone', $phone);
+                }
+
+                if ($email) {
+                    $query->orWhere('email', $email);
+                }
+            })
+            ->first();
+
+        if ($localUser && ! $localUser->isCustomerRole()) {
+            return;
+        }
+
+        if (! $localUser && ! $phone) {
+            return;
+        }
+
+        $password = $this->firstFilledScalar([$request->input('password')]);
+        $name = $this->localUserName($request, $jazeUsername);
+        $data = [
+            'name' => $name,
+            'phone' => $phone ?: $localUser?->phone,
+            'email' => $email,
+            'role' => 'user',
+            'branch_id' => $branch->id,
+            'jaze_user_id' => $jazeUserId,
+            'jaze_username' => $jazeUsername,
+            'status' => 'active',
+        ];
+
+        if ($password || ! $localUser) {
+            $data['password'] = $password ?: Str::random(32);
+        }
+
+        if ($localUser) {
+            $localUser->update(collect($data)
+                ->filter(fn (mixed $value): bool => $value !== null && $value !== '')
+                ->all());
+
+            return;
+        }
+
+        AdminUser::create(collect($data)
+            ->filter(fn (mixed $value): bool => $value !== null && $value !== '')
+            ->all());
+    }
+
+    /**
+     * @param  array<int, mixed>  $values
+     */
+    private function firstFilledScalar(array $values): ?string
+    {
+        foreach ($values as $value) {
+            if (! is_scalar($value)) {
+                continue;
+            }
+
+            $trimmedValue = trim((string) $value);
+
+            if ($trimmedValue !== '') {
+                return $trimmedValue;
+            }
+        }
+
+        return null;
+    }
+
+    private function localUserName(Request $request, ?string $fallback): string
+    {
+        $firstName = $this->firstFilledScalar([$request->input('firstName'), $request->input('first_name')]);
+        $lastName = $this->firstFilledScalar([$request->input('lastName'), $request->input('last_name')]);
+        $fullName = trim(implode(' ', array_filter([$firstName, $lastName])));
+
+        return $fullName !== ''
+            ? $fullName
+            : ($this->firstFilledScalar([$request->input('name')]) ?: ($fallback ?: 'User'));
     }
 
     /**

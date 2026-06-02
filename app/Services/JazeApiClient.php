@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Branch;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
@@ -23,9 +24,9 @@ class JazeApiClient
      * @param  array<string, mixed>  $data
      * @return array{status: int, data: mixed, successful: bool}
      */
-    public function post(Branch $branch, string $path, array $data = []): array
+    public function post(Branch $branch, string $path, array $data = [], array $files = []): array
     {
-        return $this->send($branch, 'post', $path, data: $data);
+        return $this->send($branch, 'post', $path, data: $data, files: $files);
     }
 
     /**
@@ -33,8 +34,14 @@ class JazeApiClient
      * @param  array<string, mixed>  $data
      * @return array{status: int, data: mixed, successful: bool}
      */
-    private function send(Branch $branch, string $method, string $path, array $query = [], array $data = []): array
-    {
+    private function send(
+        Branch $branch,
+        string $method,
+        string $path,
+        array $query = [],
+        array $data = [],
+        array $files = []
+    ): array {
         if (! $this->configured($branch)) {
             throw new RuntimeException("Jaze API is not configured for branch [{$branch->code}]. Set JAZE_BASE_URL plus branch jaze_api_token and jaze_api_key.");
         }
@@ -42,7 +49,7 @@ class JazeApiClient
         /** @var Response $response */
         $response = match ($method) {
             'get' => $this->request($branch)->get($path, $query),
-            'post' => $this->request($branch)->post($path, $data),
+            'post' => $this->postRequest($branch, $path, $data, $files),
             default => throw new RuntimeException("Unsupported Jaze HTTP method [{$method}]."),
         };
 
@@ -67,5 +74,30 @@ class JazeApiClient
             ->acceptJson()
             ->asForm()
             ->timeout((int) config('services.jaze.timeout', 20));
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @param  array<string, UploadedFile>  $files
+     */
+    private function postRequest(Branch $branch, string $path, array $data, array $files): Response
+    {
+        $request = $this->request($branch);
+
+        if ($files === []) {
+            return $request->post($path, $data);
+        }
+
+        $request = $request->asMultipart();
+
+        foreach ($files as $name => $file) {
+            $request = $request->attach(
+                $name,
+                fopen($file->getRealPath(), 'r'),
+                $file->getClientOriginalName(),
+            );
+        }
+
+        return $request->post($path, $data);
     }
 }
