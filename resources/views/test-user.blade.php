@@ -36,12 +36,30 @@
 </head>
 <body>
     <h1>Test Jaze User</h1>
+    @if (! empty($groupError))
+        <p style="color: #b91c1c; font-weight: 600;">{{ $groupError }}</p>
+    @endif
     <form method="post" action="/test-user" enctype="multipart/form-data">
         @csrf
         @foreach ($defaults as $name => $value)
             <label>
                 {{ $name }}
-                <input name="{{ $name }}" value="{{ old($name, $value) }}">
+                @if ($name === 'userGroupId' && ! empty($groups))
+                    <select name="{{ $name }}">
+                        @foreach ($groups as $group)
+                            @php
+                                $groupId = (string) data_get($group, 'Group_id');
+                                $groupName = (string) data_get($group, 'Group_name', $groupId);
+                                $profileName = (string) data_get($group, 'Profile_Name', '');
+                            @endphp
+                            <option value="{{ $groupId }}" @selected(old($name, $value) === $groupId)>
+                                {{ $groupName }}{{ $profileName !== '' ? ' / '.$profileName : '' }} ({{ $groupId }})
+                            </option>
+                        @endforeach
+                    </select>
+                @else
+                    <input name="{{ $name }}" value="{{ old($name, $value) }}">
+                @endif
             </label>
         @endforeach
         <label>

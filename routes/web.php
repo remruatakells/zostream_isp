@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\JazeApiController;
 use App\Models\AdminUser;
+use App\Models\JazePlan;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Route;
@@ -15,7 +16,7 @@ Route::match(['get', 'post'], '/test-user', function (Request $request, JazeApiC
         'admin_login' => '8732856261',
         'admin_password' => 'password123',
         'branch_code' => 'pho',
-        'userGroupId' => '1',
+        'userGroupId' => '631431159525504',
         'accountId' => 'pho',
         'userName' => 'TEST'.now()->format('His'),
         'password' => 'password123',
@@ -31,7 +32,37 @@ Route::match(['get', 'post'], '/test-user', function (Request $request, JazeApiC
     ];
 
     if ($request->isMethod('get')) {
-        return response()->make(view('test-user', ['defaults' => $defaults]));
+        $groups = [];
+        $groupError = null;
+        $adminUser = AdminUser::where('phone', $defaults['admin_login'])->first();
+
+        if ($adminUser && Hash::check((string) $defaults['admin_password'], $adminUser->password)) {
+            $request->attributes->set('admin_user', $adminUser);
+            $request->merge([
+                'branch_code' => $defaults['branch_code'],
+                'accountId' => $defaults['accountId'],
+            ]);
+
+            $groupsResponse = $controller->groupDetails($request);
+            $groupsPayload = $groupsResponse->getData(true);
+            $groups = is_array(data_get($groupsPayload, 'data')) ? data_get($groupsPayload, 'data') : [];
+
+            if ($groups === []) {
+                $groupError = is_string(data_get($groupsPayload, 'message'))
+                    ? data_get($groupsPayload, 'message')
+                    : 'No live Jaze groups returned for this branch.';
+            } else {
+                $defaults['userGroupId'] = (string) data_get($groups, '0.Group_id', $defaults['userGroupId']);
+            }
+        } else {
+            $groupError = 'Invalid default admin login/password.';
+        }
+
+        return response()->make(view('test-user', [
+            'defaults' => $defaults,
+            'groups' => $groups,
+            'groupError' => $groupError,
+        ]));
     }
 
     $adminUser = AdminUser::where('phone', $request->input('admin_login'))->first();
@@ -40,6 +71,15 @@ Route::match(['get', 'post'], '/test-user', function (Request $request, JazeApiC
     }
 
     $request->attributes->set('admin_user', $adminUser);
+    $userGroupId = trim((string) $request->input('userGroupId'));
+    $jazePlan = JazePlan::query()
+        ->where('group_id', $userGroupId)
+        ->orWhere('user_group_id', $userGroupId)
+        ->first();
+
+    if ($jazePlan) {
+        $request->merge(['userGroupId' => $jazePlan->group_id]);
+    }
 
     return $controller->addUser($request);
 });

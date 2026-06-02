@@ -15,11 +15,14 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Throwable;
 
 class JazeApiController extends Controller
 {
-    public function __construct(private readonly JazeApiClient $jaze) {}
+    public function __construct(private readonly JazeApiClient $jaze)
+    {
+    }
 
     public function authenticate(Request $request): JsonResponse
     {
@@ -96,6 +99,21 @@ class JazeApiController extends Controller
             'userGroupId' => ['required'],
             'accountId' => ['required'],
             'userName' => ['required', 'string'],
+            'firstName' => ['nullable', 'string'],
+            'lastName' => ['nullable', 'string'],
+            'password' => ['nullable', 'string'],
+            'phoneNumber' => ['nullable', 'string'],
+            'emailId' => ['nullable', 'string'],
+            'userState' => ['nullable', 'string'],
+            'userType' => ['nullable', 'string'],
+            'activationDate' => ['required', Rule::when(
+                !$this->isDateKeyword($request->input('activationDate'), 'now')
+                    && !$this->isDateKeyword($request->input('activationDate'), 'setnow'),
+                ['date']
+            )],
+            'expirationDate' => ['required', 'string'],
+            'customExpirationDate' => ['nullable', 'date'],
+            'idFile' => ['nullable', 'file'],
         ]);
 
         return $this->post(
@@ -104,7 +122,7 @@ class JazeApiController extends Controller
             afterSuccessfulResponse: function (Branch $branch, AdminUser $adminUser, array $response) use ($request): ?JsonResponse {
                 $this->storeLocalUserAfterJazeAdd($request, $branch, $response);
 
-                if (! $this->shouldSubscribeZostreamForAddUser($request)) {
+                if (!$this->shouldSubscribeZostreamForAddUser($request)) {
                     return null;
                 }
 
@@ -162,7 +180,7 @@ class JazeApiController extends Controller
         return $this->post(
             $request,
             'api/v1/renew',
-            afterSuccessfulResponse: fn (Branch $branch, AdminUser $adminUser, array $response): ?JsonResponse => $this->handleSuccessfulRenew(
+            afterSuccessfulResponse: fn(Branch $branch, AdminUser $adminUser, array $response): ?JsonResponse => $this->handleSuccessfulRenew(
                 $request,
                 $branch,
                 $adminUser,
@@ -260,7 +278,7 @@ class JazeApiController extends Controller
     ): JsonResponse {
         $adminUser = $this->adminUser($request);
 
-        if ($adminUser->isCustomerRole() && ! $this->customerCanCall($adminUser, $method, $path, $parameters, $request)) {
+        if ($adminUser->isCustomerRole() && !$this->customerCanCall($adminUser, $method, $path, $parameters, $request)) {
             return response()->json(['message' => 'This user can only access their own data.'], 403);
         }
 
@@ -325,12 +343,12 @@ class JazeApiController extends Controller
         $requestedBranch = $this->requestedBranch($request);
         $requestedBranchWasProvided = $request->filled('branch_id') || $request->filled('branch_code');
 
-        if ($requestedBranchWasProvided && ! $requestedBranch) {
+        if ($requestedBranchWasProvided && !$requestedBranch) {
             return new Collection;
         }
 
         if ($adminUser->role !== 'super_admin') {
-            if ($requestedBranch && ! $this->adminCanUseBranch($adminUser, $requestedBranch)) {
+            if ($requestedBranch && !$this->adminCanUseBranch($adminUser, $requestedBranch)) {
                 abort(response()->json(['message' => 'This admin user cannot access the requested branch.'], 403));
             }
 
@@ -376,7 +394,7 @@ class JazeApiController extends Controller
                 continue;
             }
 
-            if (! $response['successful']) {
+            if (!$response['successful']) {
                 $status = 207;
             }
 
@@ -438,21 +456,25 @@ class JazeApiController extends Controller
         Request $request
     ): bool {
         if ($method === 'get') {
-            if (in_array($path, [
-                'api/v1/get_users/{page}/{perPage}/{status}',
-                'api/v1/get_all',
-                'api/v1/get_group_details',
-                'api/v1/get_group_details/{groupId}',
-            ], true)) {
+            if (
+                in_array($path, [
+                    'api/v1/get_users/{page}/{perPage}/{status}',
+                    'api/v1/get_all',
+                    'api/v1/get_group_details',
+                    'api/v1/get_group_details/{groupId}',
+                ], true)
+            ) {
                 return true;
             }
 
-            if (in_array($path, [
-                'api/v1/get_details/{userId}',
-                'api/v1/get_balance/{userId}',
-                'api/v1/get_logofftime_onlinestatus/{userId}',
-                'api/v1/get_payment_details/{userId}',
-            ], true)) {
+            if (
+                in_array($path, [
+                    'api/v1/get_details/{userId}',
+                    'api/v1/get_balance/{userId}',
+                    'api/v1/get_logofftime_onlinestatus/{userId}',
+                    'api/v1/get_payment_details/{userId}',
+                ], true)
+            ) {
                 return $this->customerOwnsJazeUserId($adminUser, $parameters['userId'] ?? null);
             }
 
@@ -483,11 +505,11 @@ class JazeApiController extends Controller
 
     private function customerScopedResponseData(AdminUser $adminUser, string $path, mixed $data): mixed
     {
-        if ($path !== 'api/v1/get_all' && ! str_starts_with($path, 'api/v1/get_users/')) {
+        if ($path !== 'api/v1/get_all' && !str_starts_with($path, 'api/v1/get_users/')) {
             return $data;
         }
 
-        if (! is_array($data)) {
+        if (!is_array($data)) {
             return $data;
         }
 
@@ -516,14 +538,14 @@ class JazeApiController extends Controller
     {
         return array_values(array_filter(
             $users,
-            fn (mixed $user): bool => is_array($user) && $this->customerUserMatches($adminUser, $user)
+            fn(mixed $user): bool => is_array($user) && $this->customerUserMatches($adminUser, $user)
         ));
     }
 
     private function isListOfUsers(array $data): bool
     {
         foreach ($data as $item) {
-            if (! is_array($item)) {
+            if (!is_array($item)) {
                 return false;
             }
         }
@@ -580,7 +602,7 @@ class JazeApiController extends Controller
     {
         return collect($request->all())
             ->except(['admin_login', 'admin_password', 'branch_id', 'branch_code'])
-            ->filter(fn (mixed $value): bool => $value !== null && $value !== '' && ! $value instanceof UploadedFile)
+            ->filter(fn(mixed $value): bool => $value !== null && $value !== '' && !$value instanceof UploadedFile)
             ->all();
     }
 
@@ -590,7 +612,7 @@ class JazeApiController extends Controller
     private function filePayload(Request $request): array
     {
         return collect($request->allFiles())
-            ->filter(fn (mixed $value): bool => $value instanceof UploadedFile)
+            ->filter(fn(mixed $value): bool => $value instanceof UploadedFile)
             ->all();
     }
 
@@ -659,7 +681,7 @@ class JazeApiController extends Controller
             data_get($response, 'data.data.email'),
         ]);
 
-        if (! $jazeUserId && ! $jazeUsername && ! $phone && ! $email) {
+        if (!$jazeUserId && !$jazeUsername && !$phone && !$email) {
             return;
         }
 
@@ -683,11 +705,11 @@ class JazeApiController extends Controller
             })
             ->first();
 
-        if ($localUser && ! $localUser->isCustomerRole()) {
+        if ($localUser && !$localUser->isCustomerRole()) {
             return;
         }
 
-        if (! $localUser && ! $phone) {
+        if (!$localUser && !$phone) {
             return;
         }
 
@@ -704,20 +726,20 @@ class JazeApiController extends Controller
             'status' => 'active',
         ];
 
-        if ($password || ! $localUser) {
+        if ($password || !$localUser) {
             $data['password'] = $password ?: Str::random(32);
         }
 
         if ($localUser) {
             $localUser->update(collect($data)
-                ->filter(fn (mixed $value): bool => $value !== null && $value !== '')
+                ->filter(fn(mixed $value): bool => $value !== null && $value !== '')
                 ->all());
 
             return;
         }
 
         AdminUser::create(collect($data)
-            ->filter(fn (mixed $value): bool => $value !== null && $value !== '')
+            ->filter(fn(mixed $value): bool => $value !== null && $value !== '')
             ->all());
     }
 
@@ -727,7 +749,7 @@ class JazeApiController extends Controller
     private function firstFilledScalar(array $values): ?string
     {
         foreach ($values as $value) {
-            if (! is_scalar($value)) {
+            if (!is_scalar($value)) {
                 continue;
             }
 
@@ -775,7 +797,7 @@ class JazeApiController extends Controller
             $subscriptionResponse->json() ?? ['raw' => $subscriptionResponse->body()]
         );
 
-        if (! $this->zostreamSubscriptionSucceeded($subscriptionResponse->successful(), $subscriptionData)) {
+        if (!$this->zostreamSubscriptionSucceeded($subscriptionResponse->successful(), $subscriptionData)) {
             return response()->json([
                 'message' => 'Zostream ISP subscription failed.',
                 'zostream_isp_response' => $subscriptionData,
@@ -790,13 +812,13 @@ class JazeApiController extends Controller
      */
     private function zostreamSubscriptionSucceeded(bool $httpSuccessful, array $subscriptionData): bool
     {
-        if (! $httpSuccessful) {
+        if (!$httpSuccessful) {
             return false;
         }
 
         $status = data_get($subscriptionData, 'status');
 
-        if (! is_string($status)) {
+        if (!is_string($status)) {
             return true;
         }
 
@@ -831,7 +853,7 @@ class JazeApiController extends Controller
         $expirationDate = $this->requestDate($expirationValue, treatNeverAsOpenEnded: true);
         $expirationNeverEnds = $this->isDateKeyword($expirationValue, 'never');
 
-        if (! $activationDate || (! $expirationNeverEnds && ! $expirationDate)) {
+        if (!$activationDate || (!$expirationNeverEnds && !$expirationDate)) {
             return false;
         }
 
@@ -841,7 +863,7 @@ class JazeApiController extends Controller
             return false;
         }
 
-        return ! $expirationDate || $expirationDate->endOfDay()->greaterThanOrEqualTo($today);
+        return !$expirationDate || $expirationDate->endOfDay()->greaterThanOrEqualTo($today);
     }
 
     private function isDateKeyword(mixed $value, string $keyword): bool
@@ -859,7 +881,7 @@ class JazeApiController extends Controller
         bool $treatNowAsToday = false,
         bool $treatNeverAsOpenEnded = false
     ): ?CarbonInterface {
-        if (! is_scalar($value)) {
+        if (!is_scalar($value)) {
             return null;
         }
 
@@ -927,7 +949,7 @@ class JazeApiController extends Controller
     private function replacePathParameters(string $path, array $parameters): string
     {
         foreach ($parameters as $key => $value) {
-            $path = str_replace('{'.$key.'}', rawurlencode((string) $value), $path);
+            $path = str_replace('{' . $key . '}', rawurlencode((string) $value), $path);
         }
 
         return $path;
