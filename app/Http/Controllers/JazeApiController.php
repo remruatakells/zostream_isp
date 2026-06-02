@@ -95,26 +95,6 @@ class JazeApiController extends Controller
 
     public function addUser(Request $request): JsonResponse
     {
-        $request->validate([
-            'userGroupId' => ['required'],
-            'accountId' => ['required'],
-            'userName' => ['required', 'string'],
-            'firstName' => ['nullable', 'string'],
-            'lastName' => ['nullable', 'string'],
-            'password' => ['nullable', 'string'],
-            'phoneNumber' => ['nullable', 'string'],
-            'emailId' => ['nullable', 'string'],
-            'userState' => ['nullable', 'string'],
-            'userType' => ['nullable', 'string'],
-            'activationDate' => ['required', Rule::when(
-                !$this->isDateKeyword($request->input('activationDate'), 'now')
-                    && !$this->isDateKeyword($request->input('activationDate'), 'setnow'),
-                ['date']
-            )],
-            'expirationDate' => ['required', 'string'],
-            'customExpirationDate' => ['nullable', 'date'],
-            'idFile' => ['nullable', 'file'],
-        ]);
 
         return $this->post(
             $request,
