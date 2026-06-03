@@ -42,11 +42,11 @@ class AdminUserSeeder extends Seeder
         );
 
         AdminUser::updateOrCreate(
-            ['phone' => '9999999999'],
+            ['phone' => '8794214452'],
             [
                 'name' => 'Sawmtea',
                 'email' => 'support44@zostream.com',
-                'password' => Hash::make('password123'),
+                'password' => Hash::make('lungphosawmtea'),
                 'role' => 'branch_admin',
                 'branch_id' => $lungphoBrach?->id,
                 'status' => 'active',
