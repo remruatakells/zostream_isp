@@ -88,7 +88,6 @@ function UsersCountChart({ stats }: { stats: JazeUsersCountStats }) {
                                 stroke="none"
                                 paddingAngle={0}
                                 activeIndex={activeIndex ?? undefined}
-                                activeShape={{ outerRadius: 88 }}
                                 onMouseEnter={(_: unknown, index: number) =>
                                     handleSegmentHover(index)
                                 }
