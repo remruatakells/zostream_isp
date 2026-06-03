@@ -18,6 +18,7 @@ class Branch extends Model
         'status',
         'jaze_api_token',
         'jaze_api_key',
+        'jaze_account_id',
     ];
 
     protected $hidden = [
@@ -28,5 +29,16 @@ class Branch extends Model
     public function adminUsers(): HasMany
     {
         return $this->hasMany(AdminUser::class);
+    }
+
+    public static function findByJazeCredentials(string $token, string $key): ?self
+    {
+        return static::query()
+            ->where('jaze_api_token', $token)
+            ->where('jaze_api_key', $key)
+            ->whereNotNull('code')
+            ->where('code', '!=', '')
+            ->where('status', 'active')
+            ->first();
     }
 }

@@ -95,6 +95,7 @@ class BranchController extends Controller
             'status' => ['nullable', Rule::in(['active', 'inactive'])],
             'jaze_api_token' => ['nullable', 'string'],
             'jaze_api_key' => ['nullable', 'string'],
+            'jaze_account_id' => ['nullable', 'string', 'max:100'],
         ]);
     }
 

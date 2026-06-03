@@ -13,13 +13,16 @@ use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Throwable;
 
 class JazeApiController extends Controller
 {
-    public function __construct(private readonly JazeApiClient $jaze) {}
+    public function __construct(private readonly JazeApiClient $jaze)
+    {
+    }
 
     public function authenticate(Request $request): JsonResponse
     {
@@ -92,11 +95,6 @@ class JazeApiController extends Controller
 
     public function addUser(Request $request): JsonResponse
     {
-        $request->validate([
-            'userGroupId' => ['required'],
-            'accountId' => ['required'],
-            'userName' => ['required', 'string'],
-        ]);
 
         return $this->post(
             $request,
@@ -104,7 +102,7 @@ class JazeApiController extends Controller
             afterSuccessfulResponse: function (Branch $branch, AdminUser $adminUser, array $response) use ($request): ?JsonResponse {
                 $this->storeLocalUserAfterJazeAdd($request, $branch, $response);
 
-                if (! $this->shouldSubscribeZostreamForAddUser($request)) {
+                if (!$this->shouldSubscribeZostreamForAddUser($request)) {
                     return null;
                 }
 
@@ -162,7 +160,7 @@ class JazeApiController extends Controller
         return $this->post(
             $request,
             'api/v1/renew',
-            afterSuccessfulResponse: fn (Branch $branch, AdminUser $adminUser, array $response): ?JsonResponse => $this->handleSuccessfulRenew(
+            afterSuccessfulResponse: fn(Branch $branch, ?AdminUser $adminUser, array $response): ?JsonResponse => $this->handleSuccessfulRenew(
                 $request,
                 $branch,
                 $adminUser,
@@ -236,7 +234,7 @@ class JazeApiController extends Controller
 
     /**
      * @param  array<string, mixed>  $parameters
-     * @param  (callable(Branch, AdminUser, array{status: int, data: mixed, successful: bool}): mixed)|null  $afterSuccessfulResponse
+     * @param  (callable(Branch, ?AdminUser, array{status: int, data: mixed, successful: bool}): mixed)|null  $afterSuccessfulResponse
      */
     private function post(
         Request $request,
@@ -249,7 +247,7 @@ class JazeApiController extends Controller
 
     /**
      * @param  array<string, mixed>  $parameters
-     * @param  (callable(Branch, AdminUser, array{status: int, data: mixed, successful: bool}): mixed)|null  $afterSuccessfulResponse
+     * @param  (callable(Branch, ?AdminUser, array{status: int, data: mixed, successful: bool}): mixed)|null  $afterSuccessfulResponse
      */
     private function send(
         Request $request,
@@ -258,9 +256,51 @@ class JazeApiController extends Controller
         array $parameters = [],
         ?callable $afterSuccessfulResponse = null
     ): JsonResponse {
+        $authenticatedBranch = $this->authenticatedBranch($request);
         $adminUser = $this->adminUser($request);
 
-        if ($adminUser->isCustomerRole() && ! $this->customerCanCall($adminUser, $method, $path, $parameters, $request)) {
+        if ($authenticatedBranch) {
+            $path = $this->replacePathParameters($path, $parameters);
+            $queryPayload = $this->queryPayload($request);
+            $bodyPayload = $this->payloadForJazePath($request, $path);
+            $filePayload = $this->filePayloadForJazePath($path, $request);
+
+            try {
+                $this->logOutgoingJazeRequest(
+                    $method,
+                    $path,
+                    $authenticatedBranch,
+                    $queryPayload,
+                    $bodyPayload,
+                    $filePayload,
+                    'authenticated_branch'
+                );
+
+                $response = $method === 'get'
+                    ? $this->jaze->get($authenticatedBranch, $path, $queryPayload)
+                    : $this->jaze->post($authenticatedBranch, $path, $bodyPayload, $filePayload);
+            } catch (Throwable $exception) {
+                return response()->json(['message' => $exception->getMessage()], 503);
+            }
+
+            if ($response['successful'] && $afterSuccessfulResponse) {
+                $callbackResponse = $afterSuccessfulResponse($authenticatedBranch, $adminUser, $response);
+
+                if ($callbackResponse instanceof JsonResponse) {
+                    return $callbackResponse;
+                }
+            }
+
+            return response()->json($response['data'], $response['status']);
+        }
+
+        if (!$adminUser) {
+            return response()->json([
+                'message' => 'Authentication is required. Send branch basic auth or admin credentials.',
+            ], 401);
+        }
+
+        if ($adminUser->isCustomerRole() && !$this->customerCanCall($adminUser, $method, $path, $parameters, $request)) {
             return response()->json(['message' => 'This user can only access their own data.'], 403);
         }
 
@@ -279,17 +319,30 @@ class JazeApiController extends Controller
         }
 
         $path = $this->replacePathParameters($path, $parameters);
+        $queryPayload = $this->queryPayload($request);
+        $bodyPayload = $this->payloadForJazePath($request, $path);
+        $filePayload = $this->filePayloadForJazePath($path, $request);
 
         if ($branches->count() > 1) {
-            return $this->sendToBranches($branches, $method, $path, $request);
+            return $this->sendToBranches($branches, $method, $path, $queryPayload, $bodyPayload, $filePayload);
         }
 
         $branch = $branches->first();
 
         try {
+            $this->logOutgoingJazeRequest(
+                $method,
+                $path,
+                $branch,
+                $queryPayload,
+                $bodyPayload,
+                $filePayload,
+                'admin_branch'
+            );
+
             $response = $method === 'get'
-                ? $this->jaze->get($branch, $path, $this->queryPayload($request))
-                : $this->jaze->post($branch, $path, $this->bodyPayload($request), $this->filePayload($request));
+                ? $this->jaze->get($branch, $path, $queryPayload)
+                : $this->jaze->post($branch, $path, $bodyPayload, $filePayload);
         } catch (Throwable $exception) {
             return response()->json(['message' => $exception->getMessage()], 503);
         }
@@ -317,6 +370,14 @@ class JazeApiController extends Controller
         return $adminUser;
     }
 
+    private function authenticatedBranch(Request $request): ?Branch
+    {
+        /** @var Branch $branch */
+        $branch = $request->attributes->get('jaze_branch');
+
+        return $branch;
+    }
+
     /**
      * @return Collection<int, Branch>|null
      */
@@ -325,12 +386,12 @@ class JazeApiController extends Controller
         $requestedBranch = $this->requestedBranch($request);
         $requestedBranchWasProvided = $request->filled('branch_id') || $request->filled('branch_code');
 
-        if ($requestedBranchWasProvided && ! $requestedBranch) {
+        if ($requestedBranchWasProvided && !$requestedBranch) {
             return new Collection;
         }
 
         if ($adminUser->role !== 'super_admin') {
-            if ($requestedBranch && ! $this->adminCanUseBranch($adminUser, $requestedBranch)) {
+            if ($requestedBranch && !$this->adminCanUseBranch($adminUser, $requestedBranch)) {
                 abort(response()->json(['message' => 'This admin user cannot access the requested branch.'], 403));
             }
 
@@ -354,17 +415,36 @@ class JazeApiController extends Controller
 
     /**
      * @param  Collection<int, Branch>  $branches
+     * @param  array<string, mixed>  $queryPayload
+     * @param  array<string, mixed>  $bodyPayload
+     * @param  array<string, UploadedFile>  $filePayload
      */
-    private function sendToBranches(Collection $branches, string $method, string $path, Request $request): JsonResponse
-    {
+    private function sendToBranches(
+        Collection $branches,
+        string $method,
+        string $path,
+        array $queryPayload,
+        array $bodyPayload,
+        array $filePayload
+    ): JsonResponse {
         $results = [];
         $status = 200;
 
         foreach ($branches as $branch) {
             try {
+                $this->logOutgoingJazeRequest(
+                    $method,
+                    $path,
+                    $branch,
+                    $queryPayload,
+                    $bodyPayload,
+                    $filePayload,
+                    'admin_multi_branch'
+                );
+
                 $response = $method === 'get'
-                    ? $this->jaze->get($branch, $path, $this->queryPayload($request))
-                    : $this->jaze->post($branch, $path, $this->bodyPayload($request), $this->filePayload($request));
+                    ? $this->jaze->get($branch, $path, $queryPayload)
+                    : $this->postToJaze($branch, $path, $bodyPayload, $filePayload);
             } catch (Throwable $exception) {
                 $status = 207;
                 $results[] = $this->branchResult($branch, [
@@ -376,7 +456,7 @@ class JazeApiController extends Controller
                 continue;
             }
 
-            if (! $response['successful']) {
+            if (!$response['successful']) {
                 $status = 207;
             }
 
@@ -384,6 +464,91 @@ class JazeApiController extends Controller
         }
 
         return response()->json(['branches' => $results], $status);
+    }
+
+    /**
+     * @param  array<string, mixed>  $query
+     * @param  array<string, mixed>  $data
+     * @param  array<string, UploadedFile>  $files
+     */
+    private function logOutgoingJazeRequest(
+        string $method,
+        string $path,
+        Branch $branch,
+        array $query = [],
+        array $data = [],
+        array $files = [],
+        string $context = 'direct'
+    ): void {
+        Log::info('Sending Jaze API request', [
+            'context' => $context,
+            'method' => strtoupper($method),
+            'path' => $path,
+            'branch' => [
+                'id' => $branch->id,
+                'name' => $branch->name,
+                'code' => $branch->code,
+            ],
+            'query' => $query,
+            'data' => $data,
+            'files' => array_map(
+                fn(UploadedFile $file): array => [
+                    'original_name' => $file->getClientOriginalName(),
+                    'mime_type' => $file->getClientMimeType(),
+                    'size' => $file->getSize(),
+                ],
+                $files
+            ),
+        ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    private function payloadForJazePath(Request $request, string $path): array
+    {
+        $payload = $this->bodyPayload($request);
+
+        if ($path === 'api/v1/add_user') {
+            $payload = collect($payload)
+                ->only([
+                    'userId',
+                    'userGroupId',
+                    'accountId',
+                    'userName',
+                    'firstName',
+                    'first_name',
+                    'lastName',
+                    'last_name',
+                    'password',
+                    'userState',
+                    'activationDate',
+                    'expirationDate',
+                    'customActivationDate',
+                    'customExpirationDate',
+                    'phoneNumber',
+                    'emailId',
+                ])
+                ->all();
+
+            if (array_key_exists('userGroupId', $payload) && is_numeric($payload['userGroupId'])) {
+                $payload['userGroupId'] = (int) $payload['userGroupId'];
+            }
+
+            return $payload;
+        }
+
+        return $payload;
+    }
+
+    /**
+     * @param  array<string, UploadedFile>  $files
+     * @return array<string, UploadedFile>
+     */
+    private function filePayloadForJazePath(string $path, Request $request): array
+    {
+        return $this->filePayload($request);
     }
 
     /**
@@ -415,7 +580,10 @@ class JazeApiController extends Controller
         }
 
         if ($request->filled('accountId')) {
-            return Branch::where('code', $request->input('accountId'))->first();
+            return Branch::query()
+                ->where('jaze_account_id', $request->input('accountId'))
+                ->orWhere('code', $request->input('accountId'))
+                ->first();
         }
 
         return null;
@@ -438,21 +606,25 @@ class JazeApiController extends Controller
         Request $request
     ): bool {
         if ($method === 'get') {
-            if (in_array($path, [
-                'api/v1/get_users/{page}/{perPage}/{status}',
-                'api/v1/get_all',
-                'api/v1/get_group_details',
-                'api/v1/get_group_details/{groupId}',
-            ], true)) {
+            if (
+                in_array($path, [
+                    'api/v1/get_users/{page}/{perPage}/{status}',
+                    'api/v1/get_all',
+                    'api/v1/get_group_details',
+                    'api/v1/get_group_details/{groupId}',
+                ], true)
+            ) {
                 return true;
             }
 
-            if (in_array($path, [
-                'api/v1/get_details/{userId}',
-                'api/v1/get_balance/{userId}',
-                'api/v1/get_logofftime_onlinestatus/{userId}',
-                'api/v1/get_payment_details/{userId}',
-            ], true)) {
+            if (
+                in_array($path, [
+                    'api/v1/get_details/{userId}',
+                    'api/v1/get_balance/{userId}',
+                    'api/v1/get_logofftime_onlinestatus/{userId}',
+                    'api/v1/get_payment_details/{userId}',
+                ], true)
+            ) {
                 return $this->customerOwnsJazeUserId($adminUser, $parameters['userId'] ?? null);
             }
 
@@ -483,11 +655,11 @@ class JazeApiController extends Controller
 
     private function customerScopedResponseData(AdminUser $adminUser, string $path, mixed $data): mixed
     {
-        if ($path !== 'api/v1/get_all' && ! str_starts_with($path, 'api/v1/get_users/')) {
+        if ($path !== 'api/v1/get_all' && !str_starts_with($path, 'api/v1/get_users/')) {
             return $data;
         }
 
-        if (! is_array($data)) {
+        if (!is_array($data)) {
             return $data;
         }
 
@@ -516,14 +688,14 @@ class JazeApiController extends Controller
     {
         return array_values(array_filter(
             $users,
-            fn (mixed $user): bool => is_array($user) && $this->customerUserMatches($adminUser, $user)
+            fn(mixed $user): bool => is_array($user) && $this->customerUserMatches($adminUser, $user)
         ));
     }
 
     private function isListOfUsers(array $data): bool
     {
         foreach ($data as $item) {
-            if (! is_array($item)) {
+            if (!is_array($item)) {
                 return false;
             }
         }
@@ -580,7 +752,7 @@ class JazeApiController extends Controller
     {
         return collect($request->all())
             ->except(['admin_login', 'admin_password', 'branch_id', 'branch_code'])
-            ->filter(fn (mixed $value): bool => $value !== null && $value !== '' && ! $value instanceof UploadedFile)
+            ->filter(fn(mixed $value): bool => $value !== null && $value !== '' && !$value instanceof UploadedFile)
             ->all();
     }
 
@@ -590,7 +762,7 @@ class JazeApiController extends Controller
     private function filePayload(Request $request): array
     {
         return collect($request->allFiles())
-            ->filter(fn (mixed $value): bool => $value instanceof UploadedFile)
+            ->filter(fn(mixed $value): bool => $value instanceof UploadedFile)
             ->all();
     }
 
@@ -600,7 +772,7 @@ class JazeApiController extends Controller
     private function handleSuccessfulRenew(
         Request $request,
         Branch $branch,
-        AdminUser $adminUser,
+        ?AdminUser $adminUser,
         array $response
     ): ?JsonResponse {
         $subscriptionResult = $this->subscribeZostreamIsp($request);
@@ -659,7 +831,7 @@ class JazeApiController extends Controller
             data_get($response, 'data.data.email'),
         ]);
 
-        if (! $jazeUserId && ! $jazeUsername && ! $phone && ! $email) {
+        if (!$jazeUserId && !$jazeUsername && !$phone && !$email) {
             return;
         }
 
@@ -683,11 +855,11 @@ class JazeApiController extends Controller
             })
             ->first();
 
-        if ($localUser && ! $localUser->isCustomerRole()) {
+        if ($localUser && !$localUser->isCustomerRole()) {
             return;
         }
 
-        if (! $localUser && ! $phone) {
+        if (!$localUser && !$phone) {
             return;
         }
 
@@ -704,20 +876,20 @@ class JazeApiController extends Controller
             'status' => 'active',
         ];
 
-        if ($password || ! $localUser) {
+        if ($password || !$localUser) {
             $data['password'] = $password ?: Str::random(32);
         }
 
         if ($localUser) {
             $localUser->update(collect($data)
-                ->filter(fn (mixed $value): bool => $value !== null && $value !== '')
+                ->filter(fn(mixed $value): bool => $value !== null && $value !== '')
                 ->all());
 
             return;
         }
 
         AdminUser::create(collect($data)
-            ->filter(fn (mixed $value): bool => $value !== null && $value !== '')
+            ->filter(fn(mixed $value): bool => $value !== null && $value !== '')
             ->all());
     }
 
@@ -727,7 +899,7 @@ class JazeApiController extends Controller
     private function firstFilledScalar(array $values): ?string
     {
         foreach ($values as $value) {
-            if (! is_scalar($value)) {
+            if (!is_scalar($value)) {
                 continue;
             }
 
@@ -775,7 +947,7 @@ class JazeApiController extends Controller
             $subscriptionResponse->json() ?? ['raw' => $subscriptionResponse->body()]
         );
 
-        if (! $this->zostreamSubscriptionSucceeded($subscriptionResponse->successful(), $subscriptionData)) {
+        if (!$this->zostreamSubscriptionSucceeded($subscriptionResponse->successful(), $subscriptionData)) {
             return response()->json([
                 'message' => 'Zostream ISP subscription failed.',
                 'zostream_isp_response' => $subscriptionData,
@@ -790,13 +962,13 @@ class JazeApiController extends Controller
      */
     private function zostreamSubscriptionSucceeded(bool $httpSuccessful, array $subscriptionData): bool
     {
-        if (! $httpSuccessful) {
+        if (!$httpSuccessful) {
             return false;
         }
 
         $status = data_get($subscriptionData, 'status');
 
-        if (! is_string($status)) {
+        if (!is_string($status)) {
             return true;
         }
 
@@ -831,7 +1003,7 @@ class JazeApiController extends Controller
         $expirationDate = $this->requestDate($expirationValue, treatNeverAsOpenEnded: true);
         $expirationNeverEnds = $this->isDateKeyword($expirationValue, 'never');
 
-        if (! $activationDate || (! $expirationNeverEnds && ! $expirationDate)) {
+        if (!$activationDate || (!$expirationNeverEnds && !$expirationDate)) {
             return false;
         }
 
@@ -841,7 +1013,7 @@ class JazeApiController extends Controller
             return false;
         }
 
-        return ! $expirationDate || $expirationDate->endOfDay()->greaterThanOrEqualTo($today);
+        return !$expirationDate || $expirationDate->endOfDay()->greaterThanOrEqualTo($today);
     }
 
     private function isDateKeyword(mixed $value, string $keyword): bool
@@ -859,7 +1031,7 @@ class JazeApiController extends Controller
         bool $treatNowAsToday = false,
         bool $treatNeverAsOpenEnded = false
     ): ?CarbonInterface {
-        if (! is_scalar($value)) {
+        if (!is_scalar($value)) {
             return null;
         }
 
@@ -898,7 +1070,7 @@ class JazeApiController extends Controller
     private function storeRenewSuccessLog(
         Request $request,
         Branch $branch,
-        AdminUser $adminUser,
+        ?AdminUser $adminUser,
         array $response,
         array $subscriptionData
     ): RenewSuccessLog {
@@ -906,7 +1078,7 @@ class JazeApiController extends Controller
 
         return RenewSuccessLog::create([
             'branch_id' => $branch->id,
-            'admin_user_id' => $adminUser->id,
+            'admin_user_id' => $adminUser?->id,
             'jaze_user_id' => $payload['userId'] ?? $payload['user_id'] ?? null,
             'jaze_username' => $payload['userName'] ?? $payload['username'] ?? null,
             'account_id' => $payload['accountId'] ?? $payload['account_id'] ?? null,
@@ -927,7 +1099,7 @@ class JazeApiController extends Controller
     private function replacePathParameters(string $path, array $parameters): string
     {
         foreach ($parameters as $key => $value) {
-            $path = str_replace('{'.$key.'}', rawurlencode((string) $value), $path);
+            $path = str_replace('{' . $key . '}', rawurlencode((string) $value), $path);
         }
 
         return $path;

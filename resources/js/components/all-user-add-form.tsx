@@ -2,7 +2,11 @@ import { Plus, RefreshCw } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import { toast } from "react-toastify";
 import { getStoredAdminSession } from "../lib/admin-auth";
-import { addJazeUser, fetchJazeGroups, type JazeGroup } from "../lib/jaze";
+import { addJazeUser } from "../lib/jaze";
+import {
+    fetchJazePlanGroups,
+    type JazeGroup,
+} from "../lib/jaze-group";
 
 function toApiDateTime(value: string) {
     const [datePart = "", timePart = "00:00"] = value.split("T");
@@ -50,7 +54,9 @@ export function AllUserAddForm() {
     const [userName, setUserName] = useState("");
     const [password, setPassword] = useState("");
     const [expirationDateInput, setExpirationDateInput] = useState("");
-    const [userGroupId, setUserGroupId] = useState("");
+    const [idFile, setIdFile] = useState<File | null>(null);
+    const [fileInputKey, setFileInputKey] = useState(0);
+    const [userGroupId, setUserGroupId] = useState<number | "">("");
     const [groups, setGroups] = useState<JazeGroup[]>([]);
     const [isLoadingGroups, setIsLoadingGroups] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -59,10 +65,9 @@ export function AllUserAddForm() {
     const loadGroups = async () => {
         const storedSession = getStoredAdminSession();
         const token = storedSession?.token;
-        const branchCode = storedSession?.admin_user.branch?.code ?? "";
 
-        if (!token || !branchCode) {
-            setGroupError("Admin token or branch code is not available.");
+        if (!token) {
+            setGroupError("Admin token is not available.");
             setIsLoadingGroups(false);
             return;
         }
@@ -71,15 +76,14 @@ export function AllUserAddForm() {
         setGroupError(null);
 
         try {
-            const nextGroups = await fetchJazeGroups({
-                token,
-                branchCode,
-            });
+            const nextGroups = await fetchJazePlanGroups({ token });
 
             setGroups(nextGroups);
-            setUserGroupId(
-                (current: string) => current || nextGroups[0]?.Group_id || "",
-            );
+            setUserGroupId(nextGroups[0]?.group_id ?? "");
+
+            if (nextGroups.length === 0) {
+                setGroupError("No WIFI plans are available.");
+            }
         } catch (error) {
             setGroupError(
                 error instanceof Error
@@ -103,7 +107,9 @@ export function AllUserAddForm() {
         setUserName("");
         setPassword("");
         setExpirationDateInput("");
-        setUserGroupId(groups[0]?.Group_id || "");
+        setIdFile(null);
+        setFileInputKey((value) => value + 1);
+        setUserGroupId(groups[0]?.group_id ?? "");
     };
 
     const handleRefresh = () => {
@@ -123,7 +129,7 @@ export function AllUserAddForm() {
             return;
         }
 
-        if (!userGroupId) {
+        if (userGroupId === "") {
             toast.error("Please select a WIFI plan.");
             return;
         }
@@ -167,6 +173,7 @@ export function AllUserAddForm() {
                 activationDate,
                 expirationDate,
                 customExpirationDate,
+                idFile,
             });
 
             toast.success(response.message);
@@ -275,9 +282,17 @@ export function AllUserAddForm() {
                             WIFI Plan
                         </span>
                         <select
-                            value={userGroupId}
+                            value={
+                                userGroupId === ""
+                                    ? ""
+                                    : String(userGroupId)
+                            }
                             onChange={(event) =>
-                                setUserGroupId(event.target.value)
+                                setUserGroupId(
+                                    event.target.value === ""
+                                        ? ""
+                                        : Number(event.target.value),
+                                )
                             }
                             required
                             disabled={isLoadingGroups || groups.length === 0}
@@ -286,14 +301,13 @@ export function AllUserAddForm() {
                             <option value="">
                                 {isLoadingGroups
                                     ? "Loading plans..."
-                                    : "Select WIFI plan"}
+                                    : groups.length === 0
+                                      ? "No WIFI plans available"
+                                      : "Select WIFI plan"}
                             </option>
                             {groups.map((group) => (
-                                <option
-                                    key={group.Group_id}
-                                    value={group.Group_id}
-                                >
-                                    {group.Group_name}
+                                <option key={group.group_id} value={group.group_id}>
+                                    {group.group_name}
                                 </option>
                             ))}
                         </select>
@@ -329,6 +343,51 @@ export function AllUserAddForm() {
                             required
                             className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--panel)] px-4 py-3 text-sm text-[var(--foreground)] outline-none"
                         />
+                    </label>
+
+                    <label className="grid gap-2 md:col-span-2">
+                        <div className="flex items-center justify-between gap-3">
+                            <span className="text-sm font-medium text-[var(--foreground)]">
+                                ID file
+                            </span>
+                            {idFile ? (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setIdFile(null);
+                                        setFileInputKey((value) => value + 1);
+                                    }}
+                                    className="text-xs font-semibold text-[var(--accent-strong)] transition hover:text-[var(--accent)]"
+                                >
+                                    Remove file
+                                </button>
+                            ) : null}
+                        </div>
+                        <input
+                            key={fileInputKey}
+                            type="file"
+                            accept="image/*,application/pdf"
+                            onChange={(event) => {
+                                setIdFile(event.target.files?.[0] ?? null);
+                            }}
+                            className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--panel)] px-4 py-3 text-sm text-[var(--foreground)] outline-none file:mr-4 file:rounded-xl file:border-0 file:bg-[var(--accent)] file:px-4 file:py-2 file:text-sm file:font-semibold file:text-[var(--accent-foreground)]"
+                        />
+                        <p className="text-xs text-[var(--muted-foreground)]">
+                            Optional. Upload an image or PDF for{" "}
+                            <span className="font-semibold text-[var(--foreground)]">
+                                idFile
+                            </span>
+                            .
+                        </p>
+                        {idFile ? (
+                            <p className="text-xs font-medium text-[var(--accent-strong)]">
+                                Selected file: {idFile.name}
+                            </p>
+                        ) : (
+                            <p className="text-xs text-[var(--muted-foreground)]">
+                                No file selected.
+                            </p>
+                        )}
                     </label>
 
                     <label className="grid gap-2">
@@ -407,7 +466,7 @@ export function AllUserAddForm() {
                     <div className="rounded-2xl border border-dashed border-[var(--border-subtle)] bg-[var(--panel)] p-4 text-sm text-[var(--muted-foreground)]">
                         Selected WIFI plan sends its{" "}
                         <span className="font-semibold text-[var(--foreground)]">
-                            Group_id
+                            group_id
                         </span>{" "}
                         as{" "}
                         <span className="font-semibold text-[var(--foreground)]">

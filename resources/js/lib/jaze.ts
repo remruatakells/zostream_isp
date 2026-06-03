@@ -19,7 +19,7 @@ export type JazeUser = {
     username: string;
     account_id: string;
     last_name?: string;
-    groupId?: string;
+    groupId?: number;
     status: string;
     name: string;
     phone?: string;
@@ -36,6 +36,7 @@ export type JazeUser = {
     createdTime?: string;
     expirationTime?: string;
     installationTime?: string;
+    idFile?: File;
     billing_id?: string | null;
     type?: string;
     modified?: string;
@@ -59,7 +60,7 @@ export type JazeUsersResponse = {
 };
 
 export type JazeGroup = {
-    Group_id: string;
+    Group_id: number;
     Group_name: string;
     Profile_id?: string;
     Profile_Name?: string;
@@ -84,6 +85,22 @@ type JazeAddUserResponse = {
               message?: string;
           };
     data?: unknown;
+};
+
+type JazeUserMutationPayload = {
+    branchCode: string;
+    userGroupId?: number;
+    accountId: string;
+    userName: string;
+    password: string;
+    phoneNumber: string;
+    emailId: string;
+    firstName: string;
+    lastName: string;
+    activationDate: string;
+    expirationDate: string;
+    customExpirationDate?: string;
+    idFile?: File | null;
 };
 
 type JazeRenewResponse = {
@@ -159,6 +176,43 @@ function extractUsersCountStats(payload: unknown): JazeUsersCountStats | null {
         others: toNumber(message.others),
         frozen: toNumber(message.frozen),
     };
+}
+
+function appendField(
+    formData: FormData,
+    key: string,
+    value: string | number | boolean | null | undefined,
+) {
+    if (value === null || value === undefined || value === "") {
+        return;
+    }
+
+    formData.append(key, String(value));
+}
+
+function buildJazeUserFormData(payload: JazeUserMutationPayload) {
+    const formData = new FormData();
+
+    appendField(formData, "branch_code", payload.branchCode);
+    appendField(formData, "userGroupId", payload.userGroupId);
+    appendField(formData, "accountId", payload.accountId);
+    appendField(formData, "userName", payload.userName);
+    appendField(formData, "password", payload.password);
+    appendField(formData, "userState", "active");
+    appendField(formData, "userType", "home");
+    appendField(formData, "activationDate", payload.activationDate);
+    appendField(formData, "expirationDate", payload.expirationDate);
+    appendField(formData, "customExpirationDate", payload.customExpirationDate);
+    appendField(formData, "phoneNumber", payload.phoneNumber);
+    appendField(formData, "emailId", payload.emailId);
+    appendField(formData, "firstName", payload.firstName);
+    appendField(formData, "lastName", payload.lastName);
+
+    if (payload.idFile) {
+        formData.append("idFile", payload.idFile);
+    }
+
+    return formData;
 }
 
 export async function fetchUsersCount({
@@ -430,10 +484,11 @@ export async function addJazeUser({
     activationDate,
     expirationDate,
     customExpirationDate,
+    idFile,
 }: {
     token: string;
     branchCode: string;
-    userGroupId: string;
+    userGroupId: number;
     accountId: string;
     userName: string;
     password: string;
@@ -444,30 +499,34 @@ export async function addJazeUser({
     activationDate: string;
     expirationDate: string;
     customExpirationDate?: string;
+    idFile?: File | null;
 }): Promise<{ message: string }> {
-    const response = await fetch("/api/jaze/users", {
+    const payload = {
+        branchCode,
+        userGroupId,
+        accountId,
+        userName,
+        password,
+        phoneNumber,
+        emailId,
+        firstName,
+        lastName,
+        activationDate,
+        expirationDate,
+        customExpirationDate,
+        idFile,
+    };
+
+    const body = buildJazeUserFormData(payload);
+
+    const url = new URL("/api/jaze/users", window.location.origin);
+    const response = await fetch(url.toString(), {
         method: "POST",
         headers: {
-            "Content-Type": "application/json",
             Accept: "application/json",
             Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-            branch_code: branchCode,
-            userGroupId,
-            accountId,
-            userName,
-            password,
-            userState: "active",
-            userType: "home",
-            activationDate,
-            expirationDate,
-            customExpirationDate,
-            phoneNumber,
-            emailId,
-            firstName,
-            lastName,
-        }),
+        body,
     });
 
     const data = (await response.json().catch(() => null)) as
@@ -509,11 +568,13 @@ export async function updateJazeUser({
     lastName,
     activationDate,
     expirationDate,
+    customExpirationDate,
+    idFile,
 }: {
     token: string;
     branchCode: string;
     userId: string;
-    userGroupId?: string;
+    userGroupId?: number;
     accountId?: string;
     userName: string;
     phoneNumber: string;
@@ -522,28 +583,36 @@ export async function updateJazeUser({
     lastName: string;
     activationDate?: string;
     expirationDate?: string;
+    customExpirationDate?: string;
+    idFile?: File | null;
 }): Promise<{ message: string }> {
+    const payload = {
+        branchCode,
+        userGroupId,
+        accountId: accountId ?? "",
+        userName,
+        password: "",
+        phoneNumber,
+        emailId,
+        firstName,
+        lastName,
+        activationDate: activationDate ?? "now",
+        expirationDate: expirationDate ?? "custom",
+        customExpirationDate,
+        idFile,
+    };
+
+    const body = buildJazeUserFormData(payload);
+
     const response = await fetch(
         `/api/jaze/users/${encodeURIComponent(userId)}`,
         {
             method: "POST",
             headers: {
-                "Content-Type": "application/json",
                 Accept: "application/json",
                 Authorization: `Bearer ${token}`,
             },
-            body: JSON.stringify({
-                branch_code: branchCode,
-                userGroupId,
-                accountId,
-                userName,
-                phoneNumber,
-                emailId,
-                firstName,
-                lastName,
-                activationDate,
-                expirationDate,
-            }),
+            body,
         },
     );
 

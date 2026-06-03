@@ -37,6 +37,11 @@ return [
 
     'jaze' => [
         'base_url' => env('JAZE_BASE_URL'),
+        'basic_user' => env('JAZE_BASIC_USER', 'pho'),
+        'basic_password' => env(
+            'JAZE_BASIC_PASSWORD',
+            '158e8dd8fffa77e221bc59087009f36bbea636e5',
+        ),
         'timeout' => env('JAZE_TIMEOUT', 20),
     ],
 

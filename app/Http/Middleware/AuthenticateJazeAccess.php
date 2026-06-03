@@ -3,31 +3,57 @@
 namespace App\Http\Middleware;
 
 use App\Models\AdminUser;
+use App\Models\Branch;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Symfony\Component\HttpFoundation\Response;
 
-class AuthenticateAdminUser
+class AuthenticateJazeAccess
 {
     /**
      * @param  Closure(Request): Response  $next
      */
     public function handle(Request $request, Closure $next): Response
     {
+        $branch = $this->branchFromBasicAuth($request);
+
+        if ($branch) {
+            $request->attributes->set('jaze_branch', $branch);
+            $request->merge([
+                'branch_id' => $branch->id,
+                'branch_code' => $branch->code,
+                'accountId' => $branch->jaze_account_id ?: $branch->code,
+            ]);
+
+            return $next($request);
+        }
+
         $adminUser = $this->adminUserFromBearerToken($request)
             ?? $this->adminUserFromBasicAuth($request)
             ?? $this->adminUserFromCredentials($request);
 
         if (! $adminUser || $adminUser->status !== 'active') {
             return response()->json([
-                'message' => 'Authentication is required. Send a bearer token, basic auth, or login credentials.',
+                'message' => 'Authentication is required. Send branch basic auth or admin credentials.',
             ], 401);
         }
 
         $request->attributes->set('admin_user', $adminUser);
 
         return $next($request);
+    }
+
+    private function branchFromBasicAuth(Request $request): ?Branch
+    {
+        $token = $request->getUser();
+        $key = $request->getPassword();
+
+        if (! $token || ! $key) {
+            return null;
+        }
+
+        return Branch::findByJazeCredentials($token, $key);
     }
 
     private function adminUserFromBearerToken(Request $request): ?AdminUser

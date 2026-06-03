@@ -14,7 +14,8 @@ class AdminUserSeeder extends Seeder
      */
     public function run(): void
     {
-        $ngopaBranch = Branch::where('code', 'NGOPA')->first();
+        $ngopaBranch = Branch::where('code', 'jaze9')->first();
+        $lungphoBrach = Branch::where('code', 'pho')->first();
 
         AdminUser::updateOrCreate(
             ['phone' => '8732856261'],
@@ -32,12 +33,25 @@ class AdminUserSeeder extends Seeder
             ['phone' => '8888888888'],
             [
                 'name' => 'Support Staff',
-                'email' => 'support@zostream.com',
+                'email' => 'support66@zostream.com',
                 'password' => Hash::make('password123'),
                 'role' => 'support',
                 'branch_id' => $ngopaBranch?->id,
                 'status' => 'active',
             ]
         );
+
+        AdminUser::updateOrCreate(
+            ['phone' => '9999999999'],
+            [
+                'name' => 'Sawmtea',
+                'email' => 'support44@zostream.com',
+                'password' => Hash::make('password123'),
+                'role' => 'support',
+                'branch_id' => $lungphoBrach?->id,
+                'status' => 'active',
+            ]
+        );
+
     }
 }

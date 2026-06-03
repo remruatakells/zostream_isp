@@ -42,14 +42,16 @@ class JazeApiClient
         array $data = [],
         array $files = []
     ): array {
-        if (! $this->configured($branch)) {
-            throw new RuntimeException("Jaze API is not configured for branch [{$branch->code}]. Set JAZE_BASE_URL plus branch jaze_api_token and jaze_api_key.");
+        if (! $this->configured()) {
+            throw new RuntimeException(
+                'Jaze API is not configured. Set JAZE_BASE_URL, JAZE_BASIC_USER, and JAZE_BASIC_PASSWORD.',
+            );
         }
 
         /** @var Response $response */
         $response = match ($method) {
-            'get' => $this->request($branch)->get($path, $query),
-            'post' => $this->postRequest($branch, $path, $data, $files),
+            'get' => $this->request()->get($path, $query),
+            'post' => $this->postRequest($path, $data, $files),
             default => throw new RuntimeException("Unsupported Jaze HTTP method [{$method}]."),
         };
 
@@ -60,19 +62,23 @@ class JazeApiClient
         ];
     }
 
-    private function configured(Branch $branch): bool
+
+    private function configured(): bool
     {
         return filled(config('services.jaze.base_url'))
-            && filled($branch->jaze_api_token)
-            && filled($branch->jaze_api_key);
+            && filled(config('services.jaze.basic_user'))
+            && filled(config('services.jaze.basic_password'));
     }
 
-    private function request(Branch $branch): PendingRequest
+    private function request(): PendingRequest
     {
         return Http::baseUrl(rtrim((string) config('services.jaze.base_url'), '/'))
-            ->withBasicAuth((string) $branch->jaze_api_token, (string) $branch->jaze_api_key)
+            ->withBasicAuth(
+                (string) config('services.jaze.basic_user'),
+                (string) config('services.jaze.basic_password'),
+            )
             ->acceptJson()
-            ->asForm()
+            ->asMultipart()
             ->timeout((int) config('services.jaze.timeout', 20));
     }
 
@@ -80,15 +86,9 @@ class JazeApiClient
      * @param  array<string, mixed>  $data
      * @param  array<string, UploadedFile>  $files
      */
-    private function postRequest(Branch $branch, string $path, array $data, array $files): Response
+    private function postRequest(string $path, array $data, array $files): Response
     {
-        $request = $this->request($branch);
-
-        if ($files === []) {
-            return $request->post($path, $data);
-        }
-
-        $request = $request->asMultipart();
+        $request = $this->request();
 
         foreach ($files as $name => $file) {
             $request = $request->attach(

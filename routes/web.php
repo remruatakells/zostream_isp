@@ -7,16 +7,21 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Route;
 
-Route::get('/', function () {
-    return view('app');
-});
+Route::view('/', 'app');
+Route::view('/login', 'app');
+Route::view('/dashboard', 'app');
+Route::view('/all-user', 'app');
+Route::view('/operator', 'app');
+Route::view('/management', 'app');
+Route::view('/download', 'app');
+Route::view('/profile', 'app');
 
 Route::match(['get', 'post'], '/test-user', function (Request $request, JazeApiController $controller) {
     $defaults = [
         'admin_login' => '8732856261',
         'admin_password' => 'password123',
         'branch_code' => 'pho',
-        'userGroupId' => '631431159525504',
+        'userGroupId' => 631431159525504,
         'accountId' => 'pho',
         'userName' => 'TEST'.now()->format('His'),
         'password' => 'password123',
@@ -52,7 +57,7 @@ Route::match(['get', 'post'], '/test-user', function (Request $request, JazeApiC
                     ? data_get($groupsPayload, 'message')
                     : 'No live Jaze groups returned for this branch.';
             } else {
-                $defaults['userGroupId'] = (string) data_get($groups, '0.Group_id', $defaults['userGroupId']);
+                $defaults['userGroupId'] = (int) data_get($groups, '0.Group_id', $defaults['userGroupId']);
             }
         } else {
             $groupError = 'Invalid default admin login/password.';
@@ -71,14 +76,20 @@ Route::match(['get', 'post'], '/test-user', function (Request $request, JazeApiC
     }
 
     $request->attributes->set('admin_user', $adminUser);
-    $userGroupId = trim((string) $request->input('userGroupId'));
+    $userGroupId = $request->input('userGroupId');
+
+    if (! is_numeric($userGroupId)) {
+        return response()->json(['message' => 'userGroupId must be numeric.'], 422);
+    }
+
+    $userGroupId = (int) $userGroupId;
     $jazePlan = JazePlan::query()
         ->where('group_id', $userGroupId)
         ->orWhere('user_group_id', $userGroupId)
         ->first();
 
     if ($jazePlan) {
-        $request->merge(['userGroupId' => $jazePlan->group_id]);
+        $request->merge(['userGroupId' => (int) $jazePlan->group_id]);
     }
 
     return $controller->addUser($request);

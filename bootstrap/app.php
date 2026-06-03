@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\AuthenticateAdminUser;
+use App\Http\Middleware\AuthenticateJazeAccess;
 use App\Http\Middleware\ForceJsonResponse;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -20,6 +21,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->alias([
             'admin.auth' => AuthenticateAdminUser::class,
+            'jaze.auth' => AuthenticateJazeAccess::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

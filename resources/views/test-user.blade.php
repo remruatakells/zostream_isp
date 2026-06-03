@@ -60,11 +60,12 @@
                     <select name="{{ $name }}">
                         @foreach ($groups as $group)
                             @php
-                                $groupId = (string) data_get($group, 'Group_id');
+                                $groupId = (int) data_get($group, 'Group_id');
                                 $groupName = (string) data_get($group, 'Group_name', $groupId);
                                 $profileName = (string) data_get($group, 'Profile_Name', '');
+                                $selectedValue = old($name, $value);
                             @endphp
-                            <option value="{{ $groupId }}" @selected(old($name, $value) === $groupId)>
+                            <option value="{{ $groupId }}" @selected((int) $selectedValue === $groupId)>
                                 {{ $groupName }}{{ $profileName !== '' ? ' / '.$profileName : '' }} ({{ $groupId }})
                             </option>
                         @endforeach
