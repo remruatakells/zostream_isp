@@ -31,6 +31,11 @@ class Branch extends Model
         return $this->hasMany(AdminUser::class);
     }
 
+    public function jazePlans(): HasMany
+    {
+        return $this->hasMany(JazePlan::class);
+    }
+
     public static function findByJazeCredentials(string $token, string $key): ?self
     {
         return static::query()

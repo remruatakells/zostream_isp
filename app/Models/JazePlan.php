@@ -4,18 +4,14 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class JazePlan extends Model
 {
     use HasFactory;
 
-    protected $primaryKey = 'group_id';
-
-    protected $keyType = 'string';
-
-    public $incrementing = false;
-
     protected $fillable = [
+        'branch_id',
         'group_id',
         'user_group_id',
         'group_name',
@@ -27,4 +23,9 @@ class JazePlan extends Model
     protected $casts = [
         'amount' => 'decimal:2',
     ];
+
+    public function branch(): BelongsTo
+    {
+        return $this->belongsTo(Branch::class);
+    }
 }

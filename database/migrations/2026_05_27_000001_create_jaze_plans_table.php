@@ -9,12 +9,16 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('jaze_plans', function (Blueprint $table): void {
-            $table->string('group_id')->primary();
+            $table->id();
+            $table->foreignId('branch_id')->constrained()->cascadeOnDelete();
+            $table->string('group_id');
             $table->string('group_name');
             $table->string('profile_id')->nullable();
             $table->string('profile_name');
             $table->decimal('amount', 10, 2);
             $table->timestamps();
+
+            $table->unique(['branch_id', 'group_id']);
         });
     }
 

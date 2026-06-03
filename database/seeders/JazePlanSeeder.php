@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Models\Branch;
 use App\Models\JazePlan;
 use Illuminate\Database\Seeder;
 
@@ -55,11 +56,16 @@ class JazePlanSeeder extends Seeder
             ],
         ];
 
-        foreach ($plans as $plan) {
-            JazePlan::updateOrCreate(
-                ['group_id' => $plan['group_id']],
-                $plan
-            );
-        }
+        Branch::query()->each(function (Branch $branch) use ($plans): void {
+            foreach ($plans as $plan) {
+                JazePlan::updateOrCreate(
+                    [
+                        'branch_id' => $branch->id,
+                        'group_id' => $plan['group_id'],
+                    ],
+                    $plan
+                );
+            }
+        });
     }
 }

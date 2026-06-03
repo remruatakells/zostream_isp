@@ -15,7 +15,7 @@ class BranchSeeder extends Seeder
         $branches = [
             [
                 'name' => 'Lungpho',
-                'code' => 'LUNGPHO',
+                'code' => 'pho',
                 'location' => 'Lungpho',
                 'jaze_api_token' => 'pho',
                 'jaze_api_key' => '158e8dd8fffa77e221bc59087009f36bbea636e5',
@@ -24,7 +24,7 @@ class BranchSeeder extends Seeder
             ],
             [
                 'name' => 'Ngopa',
-                'code' => 'NGOPA',
+                'code' => 'jaze9',
                 'location' => 'Ngopa',
                 'jaze_api_token' => 'jaze9',
                 'jaze_api_key' => '939a264329feefc2a12eb52593cb6d007616caed',

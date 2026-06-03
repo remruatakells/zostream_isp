@@ -84,8 +84,11 @@ Route::match(['get', 'post'], '/test-user', function (Request $request, JazeApiC
 
     $userGroupId = (int) $userGroupId;
     $jazePlan = JazePlan::query()
-        ->where('group_id', $userGroupId)
-        ->orWhere('user_group_id', $userGroupId)
+        ->when($adminUser->branch_id, fn ($query) => $query->where('branch_id', $adminUser->branch_id))
+        ->where(function ($query) use ($userGroupId): void {
+            $query->where('group_id', $userGroupId)
+                ->orWhere('user_group_id', $userGroupId);
+        })
         ->first();
 
     if ($jazePlan) {
