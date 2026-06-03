@@ -61,17 +61,13 @@ test('customer role only receives own jaze user from users list', function () {
     $jaze->shouldReceive('get')
         ->once()
         ->withArgs(fn (Branch $calledBranch, string $path, array $query): bool => $calledBranch->is($branch)
-            && $path === 'api/v1/get_users/1/50/'
-            && $query === ['page' => '1', 'per_page' => '50'])
+            && $path === 'api/v1/get_all'
+            && $query === [])
         ->andReturn([
             'status' => 200,
             'data' => [
-                'status' => 'success',
-                'totalRecords' => 2,
-                'data' => [
-                    ['id' => 'jaze-user-1', 'username' => 'customer001', 'phone' => '9000000100'],
-                    ['id' => 'jaze-user-2', 'username' => 'other001', 'phone' => '9000000101'],
-                ],
+                ['id' => 'jaze-user-1', 'username' => 'customer001', 'phone' => '9000000100'],
+                ['id' => 'jaze-user-2', 'username' => 'other001', 'phone' => '9000000101'],
             ],
             'successful' => true,
         ]);
@@ -82,9 +78,65 @@ test('customer role only receives own jaze user from users list', function () {
 
     $response
         ->assertOk()
-        ->assertJsonPath('totalRecords', 1)
-        ->assertJsonPath('data.0.id', 'jaze-user-1')
+        ->assertJsonCount(1)
+        ->assertJsonPath('0.id', 'jaze-user-1')
         ->assertJsonMissing(['id' => 'jaze-user-2']);
+});
+
+test('users list falls back when direct get all returns blank string', function () {
+    $branch = Branch::create([
+        'name' => 'Ngopa',
+        'code' => 'NGOPA',
+        'status' => 'active',
+    ]);
+
+    AdminUser::create([
+        'name' => 'Branch Admin',
+        'phone' => '9000000001',
+        'email' => 'branch@example.com',
+        'password' => Hash::make('password123'),
+        'role' => 'branch_admin',
+        'branch_id' => $branch->id,
+        'status' => 'active',
+    ]);
+
+    $jaze = Mockery::mock(JazeApiClient::class);
+    $jaze->shouldReceive('get')
+        ->once()
+        ->withArgs(fn (Branch $calledBranch, string $path, array $query): bool => $calledBranch->is($branch)
+            && $path === 'api/v1/get_all'
+            && $query === [])
+        ->andReturn([
+            'status' => 200,
+            'data' => '',
+            'successful' => true,
+        ]);
+    $jaze->shouldReceive('get')
+        ->once()
+        ->withArgs(fn (Branch $calledBranch, string $path, array $query): bool => $calledBranch->is($branch)
+            && $path === 'api/v1/get_users/1/500/'
+            && $query === [])
+        ->andReturn([
+            'status' => 200,
+            'data' => [
+                'status' => 'success',
+                'totalRecords' => 1,
+                'data' => [
+                    ['id' => 'jaze-user-1', 'username' => 'customer001', 'phone' => '9000000100'],
+                ],
+            ],
+            'successful' => true,
+        ]);
+
+    $this->app->instance(JazeApiClient::class, $jaze);
+
+    $response = $this->getJson('/api/jaze/users?admin_login=9000000001&admin_password=password123');
+
+    $response
+        ->assertOk()
+        ->assertJsonPath('status', 'success')
+        ->assertJsonPath('totalRecords', 1)
+        ->assertJsonPath('data.0.id', 'jaze-user-1');
 });
 
 test('customer role cannot renew another jaze user', function () {
@@ -159,16 +211,12 @@ test('successful jaze add user stores local login and customer can see own data'
     $jaze->shouldReceive('get')
         ->once()
         ->withArgs(fn (Branch $calledBranch, string $path): bool => $calledBranch->is($branch)
-            && $path === 'api/v1/get_users/1/50/')
+            && $path === 'api/v1/get_all')
         ->andReturn([
             'status' => 200,
             'data' => [
-                'status' => 'success',
-                'totalRecords' => 2,
-                'data' => [
-                    ['id' => 'jaze-user-1', 'username' => 'other001', 'phone' => '9000000101'],
-                    ['id' => 'jaze-user-2', 'username' => 'customer002', 'phone' => '9000000102'],
-                ],
+                ['id' => 'jaze-user-1', 'username' => 'other001', 'phone' => '9000000101'],
+                ['id' => 'jaze-user-2', 'username' => 'customer002', 'phone' => '9000000102'],
             ],
             'successful' => true,
         ]);
@@ -217,8 +265,8 @@ test('successful jaze add user stores local login and customer can see own data'
 
     $usersResponse
         ->assertOk()
-        ->assertJsonPath('totalRecords', 1)
-        ->assertJsonPath('data.0.id', 'jaze-user-2')
+        ->assertJsonCount(1)
+        ->assertJsonPath('0.id', 'jaze-user-2')
         ->assertJsonMissing(['id' => 'jaze-user-1']);
 });
 

@@ -42,15 +42,11 @@ class JazeApiController extends Controller
             'status' => ['nullable', 'string'],
         ]);
 
-        return $this->get(
-            $request,
-            'api/v1/get_users/{page}/{perPage}/{status}',
-            [
-                'page' => $request->query('page', 1),
-                'perPage' => $request->query('per_page', 50),
-                'status' => $request->query('status', ''),
-            ]
-        );
+        $request->query->remove('page');
+        $request->query->remove('per_page');
+        $request->query->remove('status');
+
+        return $this->get($request, 'api/v1/get_all');
     }
 
     public function allUsers(Request $request): JsonResponse
@@ -279,6 +275,8 @@ class JazeApiController extends Controller
                 $response = $method === 'get'
                     ? $this->jaze->get($authenticatedBranch, $path, $queryPayload)
                     : $this->jaze->post($authenticatedBranch, $path, $bodyPayload, $filePayload);
+
+                $response = $this->fallbackEmptyGetAllResponse($authenticatedBranch, $method, $path, $response);
             } catch (Throwable $exception) {
                 return response()->json(['message' => $exception->getMessage()], 503);
             }
@@ -343,6 +341,8 @@ class JazeApiController extends Controller
             $response = $method === 'get'
                 ? $this->jaze->get($branch, $path, $queryPayload)
                 : $this->jaze->post($branch, $path, $bodyPayload, $filePayload);
+
+            $response = $this->fallbackEmptyGetAllResponse($branch, $method, $path, $response);
         } catch (Throwable $exception) {
             return response()->json(['message' => $exception->getMessage()], 503);
         }
@@ -445,6 +445,8 @@ class JazeApiController extends Controller
                 $response = $method === 'get'
                     ? $this->jaze->get($branch, $path, $queryPayload)
                     : $this->postToJaze($branch, $path, $bodyPayload, $filePayload);
+
+                $response = $this->fallbackEmptyGetAllResponse($branch, $method, $path, $response);
             } catch (Throwable $exception) {
                 $status = 207;
                 $results[] = $this->branchResult($branch, [
@@ -569,6 +571,53 @@ class JazeApiController extends Controller
         ];
     }
 
+    /**
+     * @param  array{status: int, data: mixed, successful: bool}  $response
+     * @return array{status: int, data: mixed, successful: bool}
+     */
+    private function fallbackEmptyGetAllResponse(Branch $branch, string $method, string $path, array $response): array
+    {
+        if (
+            $method !== 'get' ||
+            $path !== 'api/v1/get_all' ||
+            ! $response['successful'] ||
+            ! $this->isBlankJazeData($response['data'])
+        ) {
+            return $response;
+        }
+
+        $fallbackPath = 'api/v1/get_users/1/500/';
+
+        Log::warning('Jaze get_all returned blank data; falling back to paged users endpoint', [
+            'branch' => [
+                'id' => $branch->id,
+                'name' => $branch->name,
+                'code' => $branch->code,
+            ],
+            'path' => $path,
+            'fallback_path' => $fallbackPath,
+        ]);
+
+        return $this->jaze->get($branch, $fallbackPath, []);
+    }
+
+    private function isBlankJazeData(mixed $data): bool
+    {
+        if ($data === null) {
+            return true;
+        }
+
+        if (is_string($data)) {
+            return trim($data) === '';
+        }
+
+        if (is_array($data) && array_key_exists('raw', $data) && is_string($data['raw'])) {
+            return trim($data['raw']) === '';
+        }
+
+        return false;
+    }
+
     private function requestedBranch(Request $request): ?Branch
     {
         if ($request->filled('branch_id')) {
@@ -628,6 +677,10 @@ class JazeApiController extends Controller
                 return $this->customerOwnsJazeUserId($adminUser, $parameters['userId'] ?? null);
             }
 
+            if ($path === 'api/v1/get_user_by_username/{username}') {
+                return $this->customerOwnsJazeUsername($adminUser, $parameters['username'] ?? null);
+            }
+
             return false;
         }
 
@@ -651,6 +704,11 @@ class JazeApiController extends Controller
         $linkedUserId = trim((string) $adminUser->jaze_user_id);
 
         return $linkedUserId !== '' && $linkedUserId === trim((string) $userId);
+    }
+
+    private function customerOwnsJazeUsername(AdminUser $adminUser, mixed $username): bool
+    {
+        return $this->sameFilledValue($adminUser->jaze_username, $username);
     }
 
     private function customerScopedResponseData(AdminUser $adminUser, string $path, mixed $data): mixed

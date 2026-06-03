@@ -50,7 +50,7 @@ class JazeApiClient
 
         /** @var Response $response */
         $response = match ($method) {
-            'get' => $this->request()->get($path, $query),
+            'get' => $this->request(multipart: false)->get($path, $query),
             'post' => $this->postRequest($path, $data, $files),
             default => throw new RuntimeException("Unsupported Jaze HTTP method [{$method}]."),
         };
@@ -70,16 +70,17 @@ class JazeApiClient
             && filled(config('services.jaze.basic_password'));
     }
 
-    private function request(): PendingRequest
+    private function request(bool $multipart = true): PendingRequest
     {
-        return Http::baseUrl(rtrim((string) config('services.jaze.base_url'), '/'))
+        $request = Http::baseUrl(rtrim((string) config('services.jaze.base_url'), '/'))
             ->withBasicAuth(
                 (string) config('services.jaze.basic_user'),
                 (string) config('services.jaze.basic_password'),
             )
             ->acceptJson()
-            ->asMultipart()
             ->timeout((int) config('services.jaze.timeout', 20));
+
+        return $multipart ? $request->asMultipart() : $request;
     }
 
     /**

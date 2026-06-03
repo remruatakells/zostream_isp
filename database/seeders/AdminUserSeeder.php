@@ -35,7 +35,7 @@ class AdminUserSeeder extends Seeder
                 'name' => 'Support Staff',
                 'email' => 'support66@zostream.com',
                 'password' => Hash::make('password123'),
-                'role' => 'support',
+                'role' => 'branch_admin',
                 'branch_id' => $ngopaBranch?->id,
                 'status' => 'active',
             ]
@@ -47,7 +47,7 @@ class AdminUserSeeder extends Seeder
                 'name' => 'Sawmtea',
                 'email' => 'support44@zostream.com',
                 'password' => Hash::make('password123'),
-                'role' => 'support',
+                'role' => 'branch_admin',
                 'branch_id' => $lungphoBrach?->id,
                 'status' => 'active',
             ]

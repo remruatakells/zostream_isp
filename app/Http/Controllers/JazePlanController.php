@@ -130,7 +130,7 @@ class JazePlanController extends Controller
         $query = JazePlan::query();
         $adminUser = $this->adminUser($request);
 
-        if ($adminUser->role === 'branch_admin') {
+        if ($adminUser->role === 'branch_admin' || $adminUser->isCustomerRole()) {
             return $query->where('branch_id', $adminUser->branch_id);
         }
 
